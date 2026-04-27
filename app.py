@@ -234,12 +234,27 @@ playwright install chromium
 
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--disable-setuid-sandbox",
+                        "--single-process",
+                        "--no-zygote",
+                    ]
+                )
                 context = browser.new_context(accept_downloads=True)
                 page    = context.new_page()
 
                 log("🌐 GİB sitesine bağlanılıyor...")
-                page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama", timeout=30000)
+                page.goto(
+                    "https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama",
+                    timeout=60000,
+                    wait_until="domcontentloaded"
+                )
+                page.wait_for_timeout(2000)
                 page.evaluate("document.body.style.zoom='50%'")
                 progress.progress(10, text="Site yüklendi")
 
