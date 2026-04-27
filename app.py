@@ -125,37 +125,44 @@ uploaded_file = st.file_uploader(
     help="A: Miktar, B: Vade Tarihi, C: Ödeme Tarihi formatında olmalıdır."
 )
 
-df_preview = None
 valid_rows = []
+
+def tarihe_cevir(deger):
+    """datetime objesi, string veya sayısal Excel tarihi → GG.AA.YYYY string"""
+    if deger is None or (isinstance(deger, float) and pd.isna(deger)):
+        return None
+    # Zaten datetime/date objesi ise (Excel'in otomatik parse ettiği)
+    if hasattr(deger, "strftime"):
+        return deger.strftime("%d.%m.%Y")
+    s = str(deger).strip()
+    # Saat kısmını at: "2024-01-01 00:00:00" → "2024-01-01"
+    s = s.split(" ")[0]
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%d.%m.%Y")
+        except ValueError:
+            continue
+    return None
 
 if uploaded_file:
     try:
-        df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
+        # dtype=str KULLANMA — datetime'ları doğal haliyle oku
+        df_raw = pd.read_excel(uploaded_file, header=None)
         df_raw.columns = ["Ödenecek Miktar", "Vade Tarihi", "Ödeme Tarihi"] + \
                          [f"Sütun_{i}" for i in range(3, len(df_raw.columns))]
-        df_preview = df_raw[["Ödenecek Miktar", "Vade Tarihi", "Ödeme Tarihi"]].dropna(how="all")
+        df_raw = df_raw[["Ödenecek Miktar", "Vade Tarihi", "Ödeme Tarihi"]].dropna(how="all")
 
-        st.success(f"✅ Dosya okundu — {len(df_preview)} satır bulundu")
-        st.dataframe(df_preview.reset_index(drop=True), use_container_width=True)
-
-        # Geçerli satırları ayıkla
-        for _, row in df_preview.iterrows():
-            m, v, o = row["Ödenecek Miktar"], row["Vade Tarihi"], row["Ödeme Tarihi"]
-            if pd.notna(m) and pd.notna(v) and pd.notna(o):
-                # Tarih formatını normalize et
-                for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
-                    try:
-                        v_fmt = datetime.strptime(str(v).strip(), fmt).strftime("%d.%m.%Y")
-                        o_fmt = datetime.strptime(str(o).strip(), fmt).strftime("%d.%m.%Y")
-                        valid_rows.append({"miktar": str(m).strip(), "vade": v_fmt, "odeme": o_fmt})
-                        break
-                    except ValueError:
-                        continue
+        for _, row in df_raw.iterrows():
+            m = row["Ödenecek Miktar"]
+            v = tarihe_cevir(row["Vade Tarihi"])
+            o = tarihe_cevir(row["Ödeme Tarihi"])
+            if pd.notna(m) and v and o:
+                valid_rows.append({"miktar": str(m).strip(), "vade": v, "odeme": o})
 
         if len(valid_rows) == 0:
-            st.error("❌ Geçerli satır bulunamadı. Tarih formatını kontrol edin (GG.AA.YYYY).")
-        elif len(valid_rows) != len(df_preview):
-            st.warning(f"⚠️ {len(df_preview) - len(valid_rows)} satır geçersiz format nedeniyle atlandı.")
+            st.error("❌ Geçerli satır bulunamadı. Tarih formatını kontrol edin.")
+        else:
+            st.success(f"✅ Dosya okundu — **{len(valid_rows)} geçerli satır** işlenmeye hazır.")
 
     except Exception as e:
         st.error(f"❌ Dosya okunamadı: {e}")
