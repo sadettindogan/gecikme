@@ -3,8 +3,24 @@ import pandas as pd
 import os
 import time
 import tempfile
+import subprocess
+import sys
 from io import BytesIO
 from datetime import datetime
+
+# Chromium otomatik kur (Streamlit Cloud için)
+@st.cache_resource
+def playwright_kur():
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True,
+            capture_output=True
+        )
+    except Exception as e:
+        st.warning(f"Playwright kurulum uyarısı: {e}")
+
+playwright_kur()
 
 st.set_page_config(
     page_title="Gecikme Zammı Hesaplama",
