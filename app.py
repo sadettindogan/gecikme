@@ -8,25 +8,6 @@ import tempfile
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
-# --- GİRİŞ KONTROLÜ ---
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
-
-def check_password():
-    kullanici = st.text_input("Kullanıcı Adı", key="user_input")
-    pw = st.text_input("Şifre", type="password", key="pw_input")
-    if st.button("Giriş"):
-        if kullanici == "admin" and pw == "1234":
-            st.session_state['authenticated'] = True
-            st.rerun()
-        else:
-            st.error("Kullanıcı adı veya şifre hatalı.")
-
-if not st.session_state['authenticated']:
-    st.title("🔒 Özel Erişim Paneli")
-    check_password()
-    st.stop()
-
 # --- TARİH FORMATI ---
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
@@ -161,7 +142,6 @@ if yuklenen_dosya:
                 page.click("#submit")
                 time.sleep(4)
 
-                # --- PDF İNDİR ---
                 log.info("📥 PDF indiriliyor...")
                 page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
                 pdf_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.pdf")
@@ -169,7 +149,6 @@ if yuklenen_dosya:
                     page.click("#exportPdfButton")
                 dl_info.value.save_as(pdf_yolu)
 
-                # --- EXCEL İNDİR ---
                 log.info("📥 Excel indiriliyor...")
                 time.sleep(2)
                 excel_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.xlsx")
@@ -179,7 +158,6 @@ if yuklenen_dosya:
 
                 browser.close()
 
-            # --- PDF BUTONU ---
             if os.path.exists(pdf_yolu):
                 with open(pdf_yolu, "rb") as f:
                     st.download_button(
@@ -189,7 +167,6 @@ if yuklenen_dosya:
                         mime="application/pdf"
                     )
 
-            # --- EXCEL BUTONU ---
             if os.path.exists(excel_yolu):
                 with open(excel_yolu, "rb") as f:
                     st.download_button(
