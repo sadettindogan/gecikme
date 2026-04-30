@@ -4,9 +4,50 @@ from openpyxl import load_workbook
 import os
 import time
 import tempfile
+import json
+from datetime import date
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
+
+# --- ZİYARETÇİ SAYACI ---
+SAYAC_DOSYA = "ziyaretci_sayac.json"
+ADMIN_SIFRE = "gecikme2024"  # <-- İstersen buradan şifreyi değiştir
+
+def sayac_yukle():
+    if os.path.exists(SAYAC_DOSYA):
+        with open(SAYAC_DOSYA, "r") as f:
+            return json.load(f)
+    return {"toplam": 0, "bugun": 0, "bugun_tarih": str(date.today())}
+
+def sayac_kaydet(veri):
+    with open(SAYAC_DOSYA, "w") as f:
+        json.dump(veri, f)
+
+def ziyareti_kaydet():
+    if "ziyaret_sayildi" not in st.session_state:
+        st.session_state.ziyaret_sayildi = True
+        veri = sayac_yukle()
+        bugun = str(date.today())
+        if veri.get("bugun_tarih") != bugun:
+            veri["bugun"] = 0
+            veri["bugun_tarih"] = bugun
+        veri["toplam"] = veri.get("toplam", 0) + 1
+        veri["bugun"] = veri.get("bugun", 0) + 1
+        sayac_kaydet(veri)
+
+# Ziyareti kaydet (her oturum için 1 kez)
+ziyareti_kaydet()
+
+# Admin paneli (sadece ?admin=gecikme2024 ile görünür)
+params = st.query_params
+if params.get("admin") == ADMIN_SIFRE:
+    veri = sayac_yukle()
+    with st.sidebar:
+        st.markdown("### 👁️ Ziyaretçi İstatistikleri")
+        st.metric("Toplam Ziyaretçi", veri.get("toplam", 0))
+        st.metric("Bugün", veri.get("bugun", 0))
+        st.caption(f"Son güncelleme: {veri.get('bugun_tarih', '-')}")
 
 # --- TARİH FORMATI ---
 def tarih_str(t):
