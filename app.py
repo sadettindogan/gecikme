@@ -1,81 +1,106 @@
 import streamlit as st
-import pandas as pd
-import time
-import os
-import tempfile
-from io import BytesIO
 from playwright.sync_api import sync_playwright
 from openpyxl import load_workbook
+import os
+import time
+import tempfile
+import json
+from datetime import date
 
-st.set_page_config(
-    page_title="GİB Gecikme Zammı Hesaplayıcı",
-    page_icon="🧾",
-    layout="centered"
-)
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
-MAX_FORM_SATIRI = 25
+# --- ZİYARETÇİ SAYACI ---
+SAYAC_DOSYA = "ziyaretci_sayac.json"
+ADMIN_SIFRE = "gecikme2024"  # <-- İstersen buradan şifreyi değiştir
 
-st.title("🧾 GİB Gecikme Zammı Hesaplayıcı")
-st.markdown(
-    "GİB'in [Gecikme Zammı ve Faiz Hesaplama](https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama) "
-    "aracına otomatik veri girerek PDF ve Excel sonuçlarını indirir."
-)
+def sayac_yukle():
+    if os.path.exists(SAYAC_DOSYA):
+        with open(SAYAC_DOSYA, "r") as f:
+            return json.load(f)
+    return {"toplam": 0, "bugun": 0, "bugun_tarih": str(date.today())}
 
-st.divider()
+def sayac_kaydet(veri):
+    with open(SAYAC_DOSYA, "w") as f:
+        json.dump(veri, f)
 
-# ─── Excel Şablonu İndir ───────────────────────────────────────────────────────
-with st.expander("📄 Excel şablonunu indir"):
-    st.markdown(
-        "Başlık **olmadan** doldurun:\n\n"
-        "- **A sütunu:** Miktar (TL)\n"
-        "- **B sütunu:** Beyanname Tarihi (GG.AA.YYYY)\n"
-        "- **C sütunu:** Ödenecek ya da Ödenen Tarih (GG.AA.YYYY)\n\n"
-        "En fazla **25 satır** girilebilir. Excel dosyanızı sürükleyip bırakabilirsiniz."
-    )
-    ornek = pd.DataFrame({
-        "A": [1000.00, 2500.50],
-        "B": ["01.01.2023", "15.03.2023"],
-        "C": ["10.06.2024", "20.07.2024"],
-    })
-    buf = BytesIO()
-    ornek.to_excel(buf, index=False, header=False)
-    st.download_button(
-        "⬇️ Şablon İndir",
-        data=buf.getvalue(),
-        file_name="gib_sablon.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+def ziyareti_kaydet():
+    if "ziyaret_sayildi" not in st.session_state:
+        st.session_state.ziyaret_sayildi = True
+        veri = sayac_yukle()
+        bugun = str(date.today())
+        if veri.get("bugun_tarih") != bugun:
+            veri["bugun"] = 0
+            veri["bugun_tarih"] = bugun
+        veri["toplam"] = veri.get("toplam", 0) + 1
+        veri["bugun"] = veri.get("bugun", 0) + 1
+        sayac_kaydet(veri)
 
-st.divider()
+# Ziyareti kaydet (her oturum için 1 kez)
+ziyareti_kaydet()
 
+# Admin paneli (sadece ?admin=gecikme2024 ile görünür)
+params = st.query_params
+if params.get("admin") == ADMIN_SIFRE:
+    veri = sayac_yukle()
+    with st.sidebar:
+        st.markdown("### 👁️ Ziyaretçi İstatistikleri")
+        st.metric("Toplam Ziyaretçi", veri.get("toplam", 0))
+        st.metric("Bugün", veri.get("bugun", 0))
+        st.caption(f"Son güncelleme: {veri.get('bugun_tarih', '-')}")
 
-# ─── Playwright Hesaplama ─────────────────────────────────────────────────────
-def run_hesaplama(satirlar):
-    progress = st.progress(0, text="Tarayıcı başlatılıyor…")
-    log_area = st.empty()
-    loglar = []
+# --- TARİH FORMATI ---
+def tarih_str(t):
+    return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
-    def log(msg):
-        loglar.append(msg)
-        log_area.code("\n".join(loglar), language=None)
+# --- ANA UYGULAMA ---
+st.title("📄 Gecikme Zammı Rapor Portalı")
+st.write("Excel dosyanızı yükleyin (A: Tutar, B: Vade Tarihi, C: Ödeme Tarihi).")
+st.warning("⚠️ GİB sistemi en fazla **25 satır** veri kabul etmektedir.")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        pdf_hedef   = os.path.join(tmpdir, "gecikme_zam.pdf")
-        excel_hedef = os.path.join(tmpdir, "gecikme_zam.xlsx")
+yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
+
+if yuklenen_dosya:
+    if st.button("🚀 Hesaplamayı Başlat (GİB Otomasyonu)"):
+        tmp_dir = tempfile.mkdtemp()
 
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(accept_downloads=True)
-                page    = context.new_page()
+            wb = load_workbook(yuklenen_dosya, data_only=True)
+            sheet = wb.active
 
-                log("🌐 GİB sayfası açılıyor…")
-                page.goto(
-                    "https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama",
-                    timeout=30000,
+            satirlar = []
+            for satir in range(1, sheet.max_row + 1):
+                a = sheet[f"A{satir}"].value
+                b = sheet[f"B{satir}"].value
+                c = sheet[f"C{satir}"].value
+                if a and b and c:
+                    satirlar.append((a, b, c))
+
+            if not satirlar:
+                st.error("Excel dosyasında geçerli satır bulunamadı.")
+                st.stop()
+
+            if len(satirlar) > 25:
+                st.error("❌ En fazla 25 satır girilebilir.")
+                st.stop()
+
+            st.write(f"📊 **{len(satirlar)} satır** işlenecek.")
+            progress = st.progress(0)
+            log = st.empty()
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    executable_path="/usr/bin/chromium",
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
-                page.evaluate("document.body.style.zoom='50%'")
-                progress.progress(10, text="Sayfa açıldı.")
+                context = browser.new_context(accept_downloads=True)
+                page = context.new_page()
+
+                log.info("🌐 GİB sitesi açılıyor...")
+                page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
+                page.wait_for_load_state("networkidle")
+                time.sleep(3)
 
                 def satir_sayisi():
                     return len(page.query_selector_all("input[id^='odenecekMiktar']"))
@@ -88,143 +113,111 @@ def run_hesaplama(satirlar):
                     deadline = time.time() + 10
                     while time.time() < deadline:
                         if satir_sayisi() > once:
+                            time.sleep(0.5)
                             return True
                         time.sleep(0.2)
                     return False
 
-                def gecikme_turu_sec(idx):
-                    dd = page.query_selector(f"#gecikmeTipi{idx}")
-                    dd.scroll_into_view_if_needed()
-                    dd.click()
-                    time.sleep(0.3)
-                    try:
-                        page.wait_for_selector("li[data-value='Gecikme Zammı']", state="visible", timeout=5000)
-                        li = page.query_selector("li[data-value='Gecikme Zammı']")
-                        if li:
-                            li.click()
-                            time.sleep(0.2)
+                def dropdown_sec(form_index):
+                    dropdown_id = f"gecikmeTipi{form_index}"
+                    mevcut = page.query_selector(f"input[name='{dropdown_id}']")
+                    if mevcut:
+                        mevcut_deger = mevcut.get_attribute("value") or ""
+                        if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
                             return
-                    except Exception:
-                        pass
+                    dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
+                    dropdown_div.scroll_into_view_if_needed()
+                    dropdown_div.click()
+                    time.sleep(0.5)
+                    page.wait_for_selector("ul[role='listbox']", timeout=5000)
+                    time.sleep(0.3)
+                    gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
+                                 page.query_selector("li:has-text('Gecikme Zammı')")
+                    if gecikme_li:
+                        gecikme_li.click()
+                        time.sleep(0.3)
+                    else:
+                        page.keyboard.press("Escape")
+
+                def satir_doldur(miktar, vade, odeme, son_mu):
+                    form_index = satir_sayisi()
+                    vade_s  = tarih_str(vade)
+                    odeme_s = tarih_str(odeme)
+
+                    dropdown_sec(form_index)
+
+                    inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
+                    inp_miktar.click()
+                    inp_miktar.fill(str(miktar))
+
+                    inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
+                    inp_vade.click()
+                    inp_vade.fill(vade_s)
                     page.keyboard.press("Escape")
                     time.sleep(0.2)
 
-                toplam = len(satirlar)
-                for i, satir in enumerate(satirlar):
-                    form_idx = satir_sayisi()
-                    gecikme_turu_sec(form_idx)
-                    for field_id, value in [
-                        (f"odenecekMiktar{form_idx}", satir["Miktar (TL)"]),
-                        (f"vadeTarihi{form_idx}",     satir["Beyanname Tarihi"]),
-                        (f"odemeTarihi{form_idx}",    satir["Ödeme Tarihi"]),
-                    ]:
-                        el = page.query_selector(f"#{field_id}")
-                        el.fill(str(value))
+                    inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=5000)
+                    inp_odeme.click()
+                    inp_odeme.fill(odeme_s)
+                    page.keyboard.press("Escape")
+                    time.sleep(0.2)
 
-                    log(f"✅ Satır {i+1}/{toplam} forma girildi.")
-                    pct = int(10 + (i + 1) / toplam * 50)
-                    progress.progress(pct, text=f"Satır {i+1}/{toplam} işlendi")
-
-                    if i < toplam - 1:
+                    if not son_mu:
                         if not yeni_satir_ekle():
-                            st.error("❌ Yeni satır eklenemedi. İşlem durdu.")
-                            browser.close()
-                            return
+                            st.warning("Yeni satır eklenemedi, işlem durdu.")
+                            return False
+                    return True
 
+                for idx, (miktar, vade, odeme) in enumerate(satirlar):
+                    son_mu = (idx == len(satirlar) - 1)
+                    log.info(f"⏳ Satır {idx+1} işleniyor...")
+                    ok = satir_doldur(miktar, vade, odeme, son_mu)
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(0.3)
+                    progress.progress((idx + 1) / len(satirlar))
+                    if not ok:
+                        break
 
-                log("⏳ Hesaplanıyor…")
-                progress.progress(65, text="Hesaplama başlatılıyor…")
+                log.info("🔄 Hesaplama yapılıyor...")
                 page.wait_for_selector("#submit:enabled", timeout=15000)
                 page.click("#submit")
-                time.sleep(5)
+                time.sleep(4)
 
-                # PDF
-                log("📥 PDF indiriliyor…")
-                progress.progress(75, text="PDF indiriliyor…")
+                log.info("📥 PDF indiriliyor...")
                 page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
-                with page.expect_download() as dl:
+                pdf_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.pdf")
+                with page.expect_download() as dl_info:
                     page.click("#exportPdfButton")
-                dl.value.save_as(pdf_hedef)
-                log("✅ PDF indirildi.")
+                dl_info.value.save_as(pdf_yolu)
 
-                # Excel
-                log("📥 Excel indiriliyor…")
-                progress.progress(88, text="Excel indiriliyor…")
+                log.info("📥 Excel indiriliyor...")
                 time.sleep(2)
-                with page.expect_download() as xl:
+                excel_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.xlsx")
+                with page.expect_download() as xl_info:
                     page.get_by_text("Excel'e Aktar").click()
-                xl.value.save_as(excel_hedef)
-                log("✅ Excel indirildi.")
+                xl_info.value.save_as(excel_yolu)
 
                 browser.close()
 
-            progress.progress(100, text="✅ Tamamlandı!")
-            log("🎉 Tüm işlemler tamamlandı!")
-
-            st.divider()
-            st.subheader("📥 Sonuçları İndir")
-            col1, col2 = st.columns(2)
-
-            if os.path.exists(pdf_hedef):
-                with open(pdf_hedef, "rb") as f:
-                    col1.download_button(
-                        "📄 PDF İndir",
+            if os.path.exists(pdf_yolu):
+                with open(pdf_yolu, "rb") as f:
+                    st.download_button(
+                        label="📥 PDF Raporunu İndir",
                         data=f.read(),
-                        file_name="gecikme_zam.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
+                        file_name="Gecikme_Zammi_Raporu.pdf",
+                        mime="application/pdf"
                     )
 
-            if os.path.exists(excel_hedef):
-                with open(excel_hedef, "rb") as f:
-                    col2.download_button(
-                        "📊 Excel İndir",
+            if os.path.exists(excel_yolu):
+                with open(excel_yolu, "rb") as f:
+                    st.download_button(
+                        label="📊 Excel Raporunu İndir",
                         data=f.read(),
-                        file_name="gecikme_zam.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
+                        file_name="Gecikme_Zammi_Raporu.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+
+            st.success("✅ İşlem başarıyla tamamlandı!")
 
         except Exception as e:
-            st.error(f"İşlem sırasında hata: {e}")
-            progress.empty()
-
-
-# ─── Dosya Yükle ──────────────────────────────────────────────────────────────
-uploaded = st.file_uploader("📂 Excel dosyanızı yükleyin (.xlsx)", type=["xlsx"])
-
-if uploaded:
-    try:
-        wb = load_workbook(BytesIO(uploaded.read()), data_only=True)
-        sheet = wb.active
-
-        satirlar = []
-        for i in range(1, sheet.max_row + 1):
-            miktar = sheet[f"A{i}"].value
-            vade   = sheet[f"B{i}"].value
-            odeme  = sheet[f"C{i}"].value
-            if None not in (miktar, vade, odeme):
-                satirlar.append({
-                    "Miktar (TL)":       miktar,
-                    "Beyanname Tarihi":  vade  if isinstance(vade,  str) else vade.strftime("%d.%m.%Y"),
-                    "Ödeme Tarihi":      odeme if isinstance(odeme, str) else odeme.strftime("%d.%m.%Y"),
-                })
-
-        if not satirlar:
-            st.error("Excel dosyasında geçerli veri bulunamadı. A, B, C sütunlarını kontrol edin.")
-            st.stop()
-
-        if len(satirlar) > MAX_FORM_SATIRI:
-            st.error(f"❌ {len(satirlar)} satır bulundu. En fazla {MAX_FORM_SATIRI} satır işlenebilir.")
-            st.stop()
-
-        st.success(f"✅ {len(satirlar)} satır veri okundu.")
-        st.dataframe(pd.DataFrame(satirlar), use_container_width=True)
-
-        if st.button("🚀 Hesapla ve İndir", type="primary", use_container_width=True):
-            run_hesaplama(satirlar)
-
-    except Exception as e:
-        st.error(f"Dosya okunurken hata oluştu: {e}")
+            st.error(f"❌ Bir hata oluştu: {str(e)}")
