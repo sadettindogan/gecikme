@@ -26,75 +26,33 @@ st.divider()
 # ─── Excel Şablonu İndir ───────────────────────────────────────────────────────
 with st.expander("📄 Excel şablonunu indir"):
     st.markdown(
-        "A sütunu: **Ödenecek Miktar (TL)** · "
-        "B sütunu: **Vade Tarihi (GG.AA.YYYY)** · "
-        "C sütunu: **Ödeme Tarihi (GG.AA.YYYY)**"
+        "Başlık **olmadan** doldurun:\n\n"
+        "- **A sütunu:** Miktar (TL)\n"
+        "- **B sütunu:** Beyanname Tarihi (GG.AA.YYYY)\n"
+        "- **C sütunu:** Ödenecek ya da Ödenen Tarih (GG.AA.YYYY)\n\n"
+        "En fazla **25 satır** girilebilir. Excel dosyanızı sürükleyip bırakabilirsiniz."
     )
     ornek = pd.DataFrame({
-        "Ödenecek Miktar": [1000.00, 2500.50],
-        "Vade Tarihi": ["01.01.2023", "15.03.2023"],
-        "Ödeme Tarihi": ["10.06.2024", "20.07.2024"],
+        "A": [1000.00, 2500.50],
+        "B": ["01.01.2023", "15.03.2023"],
+        "C": ["10.06.2024", "20.07.2024"],
     })
     buf = BytesIO()
-    ornek.to_excel(buf, index=False)
+    ornek.to_excel(buf, index=False, header=False)
     st.download_button(
         "⬇️ Şablon İndir",
         data=buf.getvalue(),
-        file_name="xvb_sablon.xlsx",
+        file_name="gib_sablon.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 st.divider()
 
-# ─── Dosya Yükle ──────────────────────────────────────────────────────────────
-uploaded = st.file_uploader("📂 Excel dosyanızı yükleyin (.xlsx)", type=["xlsx"])
-
-if uploaded:
-    try:
-        wb = load_workbook(BytesIO(uploaded.read()), data_only=True)
-        sheet = wb.active
-
-        # Veri satırlarını say
-        satirlar = []
-        for i in range(1, sheet.max_row + 1):
-            miktar = sheet[f"A{i}"].value
-            vade   = sheet[f"B{i}"].value
-            odeme  = sheet[f"C{i}"].value
-            if None not in (miktar, vade, odeme):
-                satirlar.append({
-                    "Miktar (TL)": miktar,
-                    "Vade Tarihi": vade if isinstance(vade, str) else vade.strftime("%d.%m.%Y"),
-                    "Ödeme Tarihi": odeme if isinstance(odeme, str) else odeme.strftime("%d.%m.%Y"),
-                    "_satir": i,
-                })
-
-        if not satirlar:
-            st.error("Excel dosyasında geçerli veri bulunamadı. A, B, C sütunlarını kontrol edin.")
-            st.stop()
-
-        if len(satirlar) > MAX_FORM_SATIRI:
-            st.error(
-                f"❌ {len(satirlar)} satır bulundu. En fazla {MAX_FORM_SATIRI} satır işlenebilir."
-            )
-            st.stop()
-
-        st.success(f"✅ {len(satirlar)} satır veri okundu.")
-        df_preview = pd.DataFrame([{k: v for k, v in r.items() if k != "_satir"} for r in satirlar])
-        st.dataframe(df_preview, use_container_width=True)
-
-        hesapla = st.button("🚀 Hesapla ve İndir", type="primary", use_container_width=True)
-
-        if hesapla:
-            run_hesaplama(satirlar)
-
-    except Exception as e:
-        st.error(f"Dosya okunurken hata oluştu: {e}")
-
 
 # ─── Playwright Hesaplama ─────────────────────────────────────────────────────
 def run_hesaplama(satirlar):
     progress = st.progress(0, text="Tarayıcı başlatılıyor…")
-    log_area  = st.empty()
+    log_area = st.empty()
     loglar = []
 
     def log(msg):
@@ -157,7 +115,7 @@ def run_hesaplama(satirlar):
                     gecikme_turu_sec(form_idx)
                     for field_id, value in [
                         (f"odenecekMiktar{form_idx}", satir["Miktar (TL)"]),
-                        (f"vadeTarihi{form_idx}",     satir["Vade Tarihi"]),
+                        (f"vadeTarihi{form_idx}",     satir["Beyanname Tarihi"]),
                         (f"odemeTarihi{form_idx}",    satir["Ödeme Tarihi"]),
                     ]:
                         el = page.query_selector(f"#{field_id}")
@@ -172,6 +130,7 @@ def run_hesaplama(satirlar):
                             st.error("❌ Yeni satır eklenemedi. İşlem durdu.")
                             browser.close()
                             return
+
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(0.3)
 
@@ -231,3 +190,41 @@ def run_hesaplama(satirlar):
         except Exception as e:
             st.error(f"İşlem sırasında hata: {e}")
             progress.empty()
+
+
+# ─── Dosya Yükle ──────────────────────────────────────────────────────────────
+uploaded = st.file_uploader("📂 Excel dosyanızı yükleyin (.xlsx)", type=["xlsx"])
+
+if uploaded:
+    try:
+        wb = load_workbook(BytesIO(uploaded.read()), data_only=True)
+        sheet = wb.active
+
+        satirlar = []
+        for i in range(1, sheet.max_row + 1):
+            miktar = sheet[f"A{i}"].value
+            vade   = sheet[f"B{i}"].value
+            odeme  = sheet[f"C{i}"].value
+            if None not in (miktar, vade, odeme):
+                satirlar.append({
+                    "Miktar (TL)":       miktar,
+                    "Beyanname Tarihi":  vade  if isinstance(vade,  str) else vade.strftime("%d.%m.%Y"),
+                    "Ödeme Tarihi":      odeme if isinstance(odeme, str) else odeme.strftime("%d.%m.%Y"),
+                })
+
+        if not satirlar:
+            st.error("Excel dosyasında geçerli veri bulunamadı. A, B, C sütunlarını kontrol edin.")
+            st.stop()
+
+        if len(satirlar) > MAX_FORM_SATIRI:
+            st.error(f"❌ {len(satirlar)} satır bulundu. En fazla {MAX_FORM_SATIRI} satır işlenebilir.")
+            st.stop()
+
+        st.success(f"✅ {len(satirlar)} satır veri okundu.")
+        st.dataframe(pd.DataFrame(satirlar), use_container_width=True)
+
+        if st.button("🚀 Hesapla ve İndir", type="primary", use_container_width=True):
+            run_hesaplama(satirlar)
+
+    except Exception as e:
+        st.error(f"Dosya okunurken hata oluştu: {e}")
