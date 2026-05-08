@@ -8,11 +8,11 @@ import json
 from datetime import date
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Gecikme Zammı Raporu (25 Satır)", page_icon="📄")
+st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
 # --- ZİYARETÇİ SAYACI ---
 SAYAC_DOSYA = "ziyaretci_sayac.json"
-ADMIN_SIFRE = "gecikme2024"
+ADMIN_SIFRE = "gecikme2024"  # <-- İstersen buradan şifreyi değiştir
 
 def sayac_yukle():
     if os.path.exists(SAYAC_DOSYA):
@@ -36,64 +36,71 @@ def ziyareti_kaydet():
         veri["bugun"] = veri.get("bugun", 0) + 1
         sayac_kaydet(veri)
 
+# Ziyareti kaydet (her oturum için 1 kez)
 ziyareti_kaydet()
 
-# Admin Paneli
-if st.query_params.get("admin") == ADMIN_SIFRE:
+# Admin paneli (sadece ?admin=gecikme2024 ile görünür)
+params = st.query_params
+if params.get("admin") == ADMIN_SIFRE:
     veri = sayac_yukle()
     with st.sidebar:
-        st.markdown("### 👁️ İstatistikler")
-        st.metric("Toplam Ziyaret", veri.get("toplam", 0))
+        st.markdown("### 👁️ Ziyaretçi İstatistikleri")
+        st.metric("Toplam Ziyaretçi", veri.get("toplam", 0))
         st.metric("Bugün", veri.get("bugun", 0))
+        st.caption(f"Son güncelleme: {veri.get('bugun_tarih', '-')}")
 
+# --- TARİH FORMATI ---
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.info("Bu portal GİB sistemi üzerinden otomatik olarak **25 satıra kadar** hesaplama yapabilir.")
+st.write("Excel dosyanızı yükleyin (A: Tutar, B: Vade Tarihi, C: Ödeme Tarihi).")
+st.warning("⚠️ GİB sistemi en fazla **10 satır** veri kabul etmektedir.")
 
-yuklenen_dosya = st.file_uploader("Excel Dosyanızı Yükleyin (.xlsx)", type=["xlsx"])
+yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
-    if st.button("🚀 25 Satırlık Sorgulamayı Başlat"):
+    if st.button("🚀 Hesaplamayı Başlat (GİB Otomasyonu)"):
         tmp_dir = tempfile.mkdtemp()
-        
+
         try:
             wb = load_workbook(yuklenen_dosya, data_only=True)
             sheet = wb.active
-            
-            # Veri Toplama
+
             satirlar = []
             for satir in range(1, sheet.max_row + 1):
                 a = sheet[f"A{satir}"].value
                 b = sheet[f"B{satir}"].value
                 c = sheet[f"C{satir}"].value
-                if a is not None and b is not None and c is not None:
+                if a and b and c:
                     satirlar.append((a, b, c))
 
             if not satirlar:
-                st.error("Excel'de geçerli veri bulunamadı.")
+                st.error("Excel dosyasında geçerli satır bulunamadı.")
                 st.stop()
 
-            if len(satirlar) > 25:
-                st.error(f"❌ Excel'de {len(satirlar)} satır var. Maksimum 25 satır yükleyebilirsiniz.")
+            if len(satirlar) > 10:
+                st.error("❌ En fazla 10 satır girilebilir.")
                 st.stop()
 
-            st.success(f"✅ {len(satirlar)} satır doğrulandı. İşlem sırasına alındı.")
+            st.write(f"📊 **{len(satirlar)} satır** işlenecek.")
             progress = st.progress(0)
             log = st.empty()
 
             with sync_playwright() as p:
-                # Browser Ayarları (Sunucu uyumlu)
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                browser = p.chromium.launch(
+                    headless=True,
+                    executable_path="/usr/bin/chromium",
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                )
                 context = browser.new_context(accept_downloads=True)
                 page = context.new_page()
 
-                log.info("🌐 GİB sistemine bağlanılıyor...")
+                log.info("🌐 GİB sitesi açılıyor...")
                 page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
                 page.wait_for_load_state("networkidle")
-                time.sleep(2)
+                time.sleep(3)
 
                 def satir_sayisi():
                     return len(page.query_selector_all("input[id^='odenecekMiktar']"))
@@ -105,77 +112,112 @@ if yuklenen_dosya:
                     btn.click()
                     deadline = time.time() + 10
                     while time.time() < deadline:
-                        if satir_sayisi() > once: return True
+                        if satir_sayisi() > once:
+                            time.sleep(0.5)
+                            return True
                         time.sleep(0.2)
                     return False
 
-                def gecikme_turu_sec(f_idx):
-                    try:
-                        dropdown = page.wait_for_selector(f"#gecikmeTipi{f_idx}", timeout=5000)
-                        dropdown.scroll_into_view_if_needed()
-                        dropdown.click()
-                        time.sleep(0.4)
-                        # Gecikme Zammı seçeneğini bul ve tıkla
-                        secenek = page.query_selector("li[data-value='Gecikme Zammı']") or \
-                                  page.query_selector("li:has-text('Gecikme Zammı')")
-                        if secenek:
-                            secenek.click()
-                        else:
-                            page.keyboard.press("Escape")
-                    except: pass
+                def dropdown_sec(form_index):
+                    dropdown_id = f"gecikmeTipi{form_index}"
+                    mevcut = page.query_selector(f"input[name='{dropdown_id}']")
+                    if mevcut:
+                        mevcut_deger = mevcut.get_attribute("value") or ""
+                        if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
+                            return
+                    dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
+                    dropdown_div.scroll_into_view_if_needed()
+                    dropdown_div.click()
+                    time.sleep(0.5)
+                    page.wait_for_selector("ul[role='listbox']", timeout=5000)
+                    time.sleep(0.3)
+                    gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
+                                 page.query_selector("li:has-text('Gecikme Zammı')")
+                    if gecikme_li:
+                        gecikme_li.click()
+                        time.sleep(0.3)
+                    else:
+                        page.keyboard.press("Escape")
 
-                # --- VERİ GİRİŞ DÖNGÜSÜ ---
-                for idx, (miktar, vade, odeme) in enumerate(satirlar):
-                    f_idx = satir_sayisi()
-                    log.info(f"⏳ Satır {idx+1}/{len(satirlar)} dolduruluyor...")
-                    
-                    gecikme_turu_sec(f_idx)
-                    
-                    page.fill(f"#odenecekMiktar{f_idx}", str(miktar))
-                    
-                    v_inp = page.wait_for_selector(f"#vadeTarihi{f_idx}")
-                    v_inp.fill(tarih_str(vade))
-                    page.keyboard.press("Escape")
-                    
-                    o_inp = page.wait_for_selector(f"#odemeTarihi{f_idx}")
-                    o_inp.fill(tarih_str(odeme))
-                    page.keyboard.press("Escape")
+                def satir_doldur(miktar, vade, odeme, son_mu):
+                    form_index = satir_sayisi()
+                    vade_s  = tarih_str(vade)
+                    odeme_s = tarih_str(odeme)
 
-                    if idx < len(satirlar) - 1:
+                    dropdown_sec(form_index)
+
+                    inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
+                    inp_miktar.click()
+                    inp_miktar.fill(str(miktar))
+
+                    inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
+                    inp_vade.click()
+                    inp_vade.fill(vade_s)
+                    page.keyboard.press("Escape")
+                    time.sleep(0.2)
+
+                    inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=5000)
+                    inp_odeme.click()
+                    inp_odeme.fill(odeme_s)
+                    page.keyboard.press("Escape")
+                    time.sleep(0.2)
+
+                    if not son_mu:
                         if not yeni_satir_ekle():
-                            st.warning("Yeni satır açılırken bir sorun oluştu.")
-                            break
-                    
+                            st.warning("Yeni satır eklenemedi, işlem durdu.")
+                            return False
+                    return True
+
+                for idx, (miktar, vade, odeme) in enumerate(satirlar):
+                    son_mu = (idx == len(satirlar) - 1)
+                    log.info(f"⏳ Satır {idx+1} işleniyor...")
+                    ok = satir_doldur(miktar, vade, odeme, son_mu)
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(0.3)
                     progress.progress((idx + 1) / len(satirlar))
+                    if not ok:
+                        break
 
                 log.info("🔄 Hesaplama yapılıyor...")
+                page.wait_for_selector("#submit:enabled", timeout=15000)
                 page.click("#submit")
-                time.sleep(5)
+                time.sleep(4)
 
-                # PDF ve EXCEL İNDİRME
-                pdf_yolu = os.path.join(tmp_dir, "Rapor.pdf")
-                with page.expect_download() as d1:
+                log.info("📥 PDF indiriliyor...")
+                page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
+                pdf_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.pdf")
+                with page.expect_download() as dl_info:
                     page.click("#exportPdfButton")
-                d1.value.save_as(pdf_yolu)
+                dl_info.value.save_as(pdf_yolu)
 
-                excel_yolu = os.path.join(tmp_dir, "Rapor.xlsx")
-                with page.expect_download() as d2:
+                log.info("📥 Excel indiriliyor...")
+                time.sleep(2)
+                excel_yolu = os.path.join(tmp_dir, "Gecikme_Zammi_Raporu.xlsx")
+                with page.expect_download() as xl_info:
                     page.get_by_text("Excel'e Aktar").click()
-                d2.value.save_as(excel_yolu)
+                xl_info.value.save_as(excel_yolu)
 
                 browser.close()
 
-            # İndirme Butonları
-            col1, col2 = st.columns(2)
-            with col1:
+            if os.path.exists(pdf_yolu):
                 with open(pdf_yolu, "rb") as f:
-                    st.download_button("📥 PDF Raporu", f.read(), "Gecikme_Raporu.pdf")
-            with col2:
+                    st.download_button(
+                        label="📥 PDF Raporunu İndir",
+                        data=f.read(),
+                        file_name="Gecikme_Zammi_Raporu.pdf",
+                        mime="application/pdf"
+                    )
+
+            if os.path.exists(excel_yolu):
                 with open(excel_yolu, "rb") as f:
-                    st.download_button("📊 Excel Raporu", f.read(), "Gecikme_Raporu.xlsx")
-            
+                    st.download_button(
+                        label="📊 Excel Raporunu İndir",
+                        data=f.read(),
+                        file_name="Gecikme_Zammi_Raporu.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
             st.success("✅ İşlem başarıyla tamamlandı!")
 
         except Exception as e:
-            st.error(f"❌ Hata oluştu: {str(e)}")
+            st.error(f"❌ Bir hata oluştu: {str(e)}")
