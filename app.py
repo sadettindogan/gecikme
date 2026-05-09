@@ -30,14 +30,16 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
-            wb = load_workbook(yuklenen_dosya, data_only=True)
-            sheet = wb.active
+            # Orijinal Excel'i oku ve workbook'u hafızada tut
+            yuklenen_dosya.seek(0)
+            wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
+            sheet_orijinal = wb_orijinal.active
 
             satirlar = []
-            for satir in range(1, sheet.max_row + 1):
-                a = sheet[f"A{satir}"].value
-                b = sheet[f"B{satir}"].value
-                c = sheet[f"C{satir}"].value
+            for satir in range(1, sheet_orijinal.max_row + 1):
+                a = sheet_orijinal[f"A{satir}"].value
+                b = sheet_orijinal[f"B{satir}"].value
+                c = sheet_orijinal[f"C{satir}"].value
                 if a and b and c:
                     satirlar.append((a, b, c))
 
@@ -171,12 +173,25 @@ if yuklenen_dosya:
 
                     browser.close()
 
+                # GİB Excel'inden G sütununu oku (3. satırdan başlıyor)
+                wb_gib = load_workbook(excel_yolu, data_only=True)
+                sheet_gib = wb_gib.active
+                for i in range(len(grup)):
+                    g_degeri = sheet_gib[f"G{3 + i}"].value
+                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
+                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
                 with open(excel_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
 
                 progress.progress((grup_no + 1) / grup_sayisi)
+
+            # Orijinal Excel'i D sütunuyla birlikte kaydet
+            sonuc_buffer = io.BytesIO()
+            wb_orijinal.save(sonuc_buffer)
+            sonuclar["sonuc_dosyasi.xlsx"] = sonuc_buffer.getvalue()
 
             # Tüm dosyaları tek ZIP'e koy
             zip_buffer = io.BytesIO()
