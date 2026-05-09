@@ -16,36 +16,56 @@ st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
+# --- A SÜTUNU: HÜCRE DEĞERİNİ GÜVENLİ STR'YE ÇEVİR ---
+def miktar_ham_str(deger):
+    """
+    openpyxl sayısal hücreleri float olarak okur (örn. 100,35 → 100.35).
+    Eğer değer float/int ise virgüllü string'e dönüştürürüz.
+    Eğer değer zaten string ise olduğu gibi kullanırız (kullanıcının yazdığı ayraç korunur).
+    """
+    if isinstance(deger, float):
+        # Python float → virgüllü string (100.35 → "100,35")
+        return str(deger).replace(".", ",")
+    if isinstance(deger, int):
+        return str(deger)
+    # String ise kullanıcının girdiği haliyle bırak
+    return str(deger).strip()
+
 # --- A SÜTUNU VALİDASYONU ---
 def miktar_dogrula(satirlar):
     """
     Kurallar:
     1. Nokta (.) içermemeli, sadece virgül ondalık ayracı olabilir.
     2. Ondalık kısmı en fazla 2 hane olabilir.
-    Hatalı satırların listesini döner: [(satir_no, deger, hata_mesaji), ...]
+    Hatalı satırların listesini döner: [(satir_no, gosterilen_deger, hata_mesaji), ...]
+    Not: openpyxl float olarak okursa önce virgüle çevrilir; kural ihlali yoksa geçer.
     """
     hatalar = []
     for idx, (a, b, c) in enumerate(satirlar):
         satir_no = idx + 1
-        deger = str(a).strip()
 
-        # Kural 1: Nokta içermemeli
+        # Ham Excel değerini güvenli string'e çevir
+        ham   = str(a).strip()   # openpyxl'in verdiği ham değer (hata mesajı için)
+        deger = miktar_ham_str(a) # validasyon ve işlem için kullanılacak değer
+
+        # Kural 1: Nokta içermemeli (float→virgül dönüşümünden sonra nokta kalmış olmamalı)
         if "." in deger:
-            hatalar.append((satir_no, deger, "Nokta (.) içeriyor — ondalık ayracı olarak virgül (,) kullanılmalıdır."))
-            continue  # Bu satır zaten hatalı, ikinci kuralı kontrol etmeye gerek yok
+            hatalar.append((satir_no, ham, "Nokta (.) içeriyor — ondalık ayracı olarak virgül (,) kullanılmalıdır."))
+            continue
 
         # Kural 2: Virgüllü ondalık varsa en fazla 2 hane
         if "," in deger:
             parcalar = deger.split(",")
             if len(parcalar) > 2:
-                hatalar.append((satir_no, deger, "Birden fazla virgül içeriyor."))
+                hatalar.append((satir_no, ham, "Birden fazla virgül içeriyor."))
             elif len(parcalar[1]) > 2:
-                hatalar.append((satir_no, deger, f"Ondalık kısmı {len(parcalar[1])} hane — en fazla 2 hane olabilir."))
+                hatalar.append((satir_no, ham, f"Ondalık kısmı {len(parcalar[1])} hane — en fazla 2 hane olabilir."))
+                continue
 
-        # Sayısal karakter kontrolü (virgül ve rakam dışında bir şey var mı?)
+        # Kural 3: Geçersiz karakter (virgül ve rakam dışında)
         temiz = deger.replace(",", "")
         if not temiz.isdigit():
-            hatalar.append((satir_no, deger, "Geçersiz karakter içeriyor (yalnızca rakam ve virgül kabul edilir)."))
+            hatalar.append((satir_no, ham, "Geçersiz karakter içeriyor (yalnızca rakam ve virgül kabul edilir)."))
 
     return hatalar
 
@@ -189,7 +209,7 @@ if yuklenen_dosya:
 
                         inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
                         inp_miktar.click()
-                        inp_miktar.fill(str(miktar))
+                        inp_miktar.fill(miktar_ham_str(miktar))
 
                         inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
                         inp_vade.click()
