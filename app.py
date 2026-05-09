@@ -16,17 +16,13 @@ def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
 # --- ANA UYGULAMA ---
-st.title("Gecikme Zammı Rapor Portalı")
-st.info("""
-**Kurallar:**
-* Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olmalıdır.
-* **Tutar Kontrolü:** Tutarlar en fazla 2 ondalık basamak içerebilir (Örn: 1000,01 kabul edilir, 1000,001 reddedilir).
-""")
+st.title("📄 Gecikme Zammı Rapor Portalı")
+st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
-yuklenen_dosya = st.file_uploader("Excel dosyanızı yükleyin (.xlsx)", type=["xlsx"])
+yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
     if st.button("🚀 Başlat"):
@@ -34,40 +30,30 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
+            # Orijinal Excel'i oku ve workbook'u hafızada tut
             yuklenen_dosya.seek(0)
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
 
             satirlar = []
-            hatali_veriler = []
-
             for satir in range(1, sheet_orijinal.max_row + 1):
                 a = sheet_orijinal[f"A{satir}"].value
                 b = sheet_orijinal[f"B{satir}"].value
                 c = sheet_orijinal[f"C{satir}"].value
-
-                if a is not None and b and c:
-                    tutar_metin = str(a).replace(',', '.')
-                    if '.' in tutar_metin:
-                        ondalik_kisim = tutar_metin.split('.')[1]
-                        if len(ondalik_kisim) > 2:
-                            hatali_veriler.append(f"Satır {satir}: {a}")
+                if a and b and c:
                     satirlar.append((a, b, c))
 
-            if hatali_veriler:
-                st.error("⚠️ Aşağıdaki satırlarda 2'den fazla ondalık basamak var:")
-                for hata in hatali_veriler:
-                    st.warning(hata)
-                st.stop()
-
             if not satirlar:
-                st.error("Geçerli veri bulunamadı.")
+                st.error("Excel dosyasında geçerli satır bulunamadı.")
                 st.stop()
 
             MAX_GRUP = 25
             grup_sayisi = math.ceil(len(satirlar) / MAX_GRUP)
+            st.write(f"📊 **{len(satirlar)} satır** — **{grup_sayisi} grup** halinde işlenecek.")
+
             progress = st.progress(0)
             log = st.empty()
+
             sonuclar = {}
 
             for grup_no in range(grup_sayisi):
@@ -75,6 +61,8 @@ if yuklenen_dosya:
                 bitis     = min(baslangic + MAX_GRUP, len(satirlar))
                 grup      = satirlar[baslangic:bitis]
                 etiket    = f"{baslangic + 1}-{bitis}"
+
+                log.info(f"🚀 Grup {grup_no + 1}/{grup_sayisi} işleniyor: Satır {etiket}")
 
                 with sync_playwright() as p:
                     browser = p.chromium.launch(
@@ -85,94 +73,144 @@ if yuklenen_dosya:
                     context = browser.new_context(accept_downloads=True)
                     page    = context.new_page()
 
-                    page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama", timeout=60000)
+                    page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
                     page.wait_for_load_state("networkidle")
-                    time.sleep(2)
+                    time.sleep(3)
 
                     def satir_sayisi():
                         return len(page.query_selector_all("input[id^='odenecekMiktar']"))
 
+                    def yeni_satir_ekle():
+                        once = satir_sayisi()
+                        btn = page.query_selector("button[aria-label='add']")
+                        btn.scroll_into_view_if_needed()
+                        btn.click()
+                        deadline = time.time() + 10
+                        while time.time() < deadline:
+                            if satir_sayisi() > once:
+                                time.sleep(0.5)
+                                return True
+                            time.sleep(0.2)
+                        return False
+
                     def dropdown_sec(form_index):
                         dropdown_id = f"gecikmeTipi{form_index}"
-                        page.wait_for_selector(f"#{dropdown_id}", timeout=10000).click()
+                        mevcut = page.query_selector(f"input[name='{dropdown_id}']")
+                        if mevcut:
+                            mevcut_deger = mevcut.get_attribute("value") or ""
+                            if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
+                                return
+                        dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
+                        dropdown_div.scroll_into_view_if_needed()
+                        dropdown_div.click()
                         time.sleep(0.5)
-                        gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or page.query_selector("li:has-text('Gecikme Zammı')")
+                        page.wait_for_selector("ul[role='listbox']", timeout=5000)
+                        time.sleep(0.3)
+                        gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
+                                     page.query_selector("li:has-text('Gecikme Zammı')")
                         if gecikme_li:
                             gecikme_li.click()
+                            time.sleep(0.3)
                         else:
                             page.keyboard.press("Escape")
 
+                    def satir_doldur(miktar, vade, odeme, son_mu):
+                        form_index = satir_sayisi()
+                        vade_s  = tarih_str(vade)
+                        odeme_s = tarih_str(odeme)
+
+                        dropdown_sec(form_index)
+
+                        inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
+                        inp_miktar.click()
+                        inp_miktar.fill(str(miktar))
+
+                        inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
+                        inp_vade.click()
+                        inp_vade.fill(vade_s)
+                        page.keyboard.press("Escape")
+                        time.sleep(0.2)
+
+                        inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=5000)
+                        inp_odeme.click()
+                        inp_odeme.fill(odeme_s)
+                        page.keyboard.press("Escape")
+                        time.sleep(0.2)
+
+                        if not son_mu:
+                            if not yeni_satir_ekle():
+                                st.warning("Yeni satır eklenemedi, işlem durdu.")
+                                return False
+                        return True
+
                     for idx, (miktar, vade, odeme) in enumerate(grup):
-                        form_idx = idx
-                        if idx > 0: # İlk satır zaten var, diğerleri için ekle
-                            page.click("button[aria-label='add']")
-                            time.sleep(0.5)
+                        son_mu = (idx == len(grup) - 1)
+                        log.info(f"⏳ Grup {grup_no+1} — Satır {idx+1}/{len(grup)} işleniyor...")
+                        ok = satir_doldur(miktar, vade, odeme, son_mu)
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                        time.sleep(0.3)
+                        if not ok:
+                            break
 
-                        dropdown_sec(form_idx)
-                        page.fill(f"#odenecekMiktar{form_idx}", str(miktar))
-                        page.fill(f"#vadeTarihi{form_idx}", tarih_str(vade))
-                        page.keyboard.press("Escape")
-                        page.fill(f"#odemeTarihi{form_idx}", tarih_str(odeme))
-                        page.keyboard.press("Escape")
-
-                    # --- HESAPLA VE BEKLE ---
-                    log.info(f"🔄 Grup {grup_no+1}: Hesaplanıyor...")
+                    log.info("🔄 Hesaplama yapılıyor...")
+                    page.wait_for_selector("#submit:enabled", timeout=15000)
                     page.click("#submit")
-                    
-                    # Zaman aşımı hatasını önlemek için süreyi 30 saniyeye çıkardık
-                    # Ayrıca sayfanın aşağı kaydırılması gerekebilir
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(4)
 
-                    # PDF butonunu bekle (Süre artırıldı)
-                    try:
-                        page.wait_for_selector("#exportPdfButton:not([disabled])", timeout=30000)
-                    except:
-                        log.error("❌ PDF butonu aktifleşmedi. Sayfa yavaş olabilir.")
-                        raise
-
-                    # PDF İndir
                     log.info(f"📥 PDF indiriliyor ({etiket})...")
-                    pdf_yolu = os.path.join(tmp_dir, f"rapor_{etiket}.pdf")
+                    page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
+                    pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
                     dl_info.value.save_as(pdf_yolu)
 
-                    # Excel İndir
                     log.info(f"📥 Excel indiriliyor ({etiket})...")
-                    excel_yolu = os.path.join(tmp_dir, f"rapor_{etiket}.xlsx")
+                    time.sleep(2)
+                    excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
                     with page.expect_download() as xl_info:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
 
                     browser.close()
 
-                # GİB Excel verilerini oku
+                # GİB Excel'inden G sütununu oku (3. satırdan başlıyor)
                 wb_gib = load_workbook(excel_yolu, data_only=True)
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
-                    g_val = sheet_gib[f"G{3 + i}"].value
-                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_val)
+                    g_degeri = sheet_gib[f"G{3 + i}"].value
+                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
+                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
 
-                with open(pdf_yolu, "rb") as f: sonuclar[f"rapor_{etiket}.pdf"] = f.read()
-                with open(excel_yolu, "rb") as f: sonuclar[f"rapor_{etiket}.xlsx"] = f.read()
-                
+                with open(pdf_yolu, "rb") as f:
+                    sonuclar[f"xvb_{etiket}.pdf"] = f.read()
+                with open(excel_yolu, "rb") as f:
+                    sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
+
                 progress.progress((grup_no + 1) / grup_sayisi)
 
+            # Orijinal Excel'i D sütunuyla birlikte kaydet
             sonuc_buffer = io.BytesIO()
             wb_orijinal.save(sonuc_buffer)
-            sonuclar["toplu_sonuc.xlsx"] = sonuc_buffer.getvalue()
+            sonuclar["sonuc_dosyasi.xlsx"] = sonuc_buffer.getvalue()
 
+            # Tüm dosyaları tek ZIP'e koy
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for d_ad, icerik in sonuclar.items():
-                    zf.writestr(d_ad, icerik)
-            
+                for dosya_adi, icerik in sonuclar.items():
+                    zf.writestr(dosya_adi, icerik)
             st.session_state.zip_bytes = zip_buffer.getvalue()
+
             log.empty()
-            st.success("✅ İşlem tamamlandı!")
+            st.success("✅ Tamamlandı!")
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
 
+# Tek indirme butonu
 if st.session_state.zip_bytes:
-    st.download_button("📦 Sonuçları İndir (ZIP)", st.session_state.zip_bytes, "sonuclar.zip", "application/zip")
+    st.download_button(
+        label="📦 İndir",
+        data=st.session_state.zip_bytes,
+        file_name="xvb_raporlar.zip",
+        mime="application/zip"
+    )
