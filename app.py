@@ -16,13 +16,18 @@ def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
 # --- ANA UYGULAMA ---
-st.title("📄 Gecikme Zammı Rapor Portalı")
-st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
+## 📄 Gecikme Zammı Rapor Portalı
+st.title("Gecikme Zammı Rapor Portalı")
+st.info("""
+**Kurallar:**
+* Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olmalıdır.
+* **Tutar Kontrolü:** Tutarlar en fazla 2 ondalık basamak içerebilir (Örn: 1000,01 kabul edilir, 1000,001 reddedilir).
+""")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
-yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
+yuklenen_dosya = st.file_uploader("Excel dosyanızı yükleyin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
     if st.button("🚀 Başlat"):
@@ -30,18 +35,36 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
-            # Orijinal Excel'i oku ve workbook'u hafızada tut
+            # Orijinal Excel'i oku
             yuklenen_dosya.seek(0)
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
 
             satirlar = []
+            hatali_veriler = []
+
+            # --- VERİ OKUMA VE HASSAS KONTROL ---
             for satir in range(1, sheet_orijinal.max_row + 1):
                 a = sheet_orijinal[f"A{satir}"].value
                 b = sheet_orijinal[f"B{satir}"].value
                 c = sheet_orijinal[f"C{satir}"].value
-                if a and b and c:
+
+                if a is not None and b and c:
+                    # Sayıyı metne çevirerek ondalık kontrolü yap (Yuvarlama yapmamak için)
+                    tutar_metin = str(a).replace(',', '.')
+                    if '.' in tutar_metin:
+                        ondalik_kisim = tutar_metin.split('.')[1]
+                        if len(ondalik_kisim) > 2:
+                            hatali_veriler.append(f"Satır {satir}: {a} (En fazla 2 ondalık olmalı)")
+                    
                     satirlar.append((a, b, c))
+
+            # Hata varsa işlemi burada kes
+            if hatali_veriler:
+                st.error("⚠️ Dosyada formatı bozuk tutarlar bulundu!")
+                for hata in hatali_veriler:
+                    st.warning(hata)
+                st.stop()
 
             if not satirlar:
                 st.error("Excel dosyasında geçerli satır bulunamadı.")
@@ -53,7 +76,6 @@ if yuklenen_dosya:
 
             progress = st.progress(0)
             log = st.empty()
-
             sonuclar = {}
 
             for grup_no in range(grup_sayisi):
@@ -98,7 +120,7 @@ if yuklenen_dosya:
                         mevcut = page.query_selector(f"input[name='{dropdown_id}']")
                         if mevcut:
                             mevcut_deger = mevcut.get_attribute("value") or ""
-                            if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
+                            if "Gecikme Zammı" in mevcut_deger or "gecikmezammi" in mevcut_deger.lower():
                                 return
                         dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
                         dropdown_div.scroll_into_view_if_needed()
@@ -123,6 +145,7 @@ if yuklenen_dosya:
 
                         inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
                         inp_miktar.click()
+                        # Buradaki miktar ön kontrolden geçtiği için güvenlidir
                         inp_miktar.fill(str(miktar))
 
                         inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
@@ -139,7 +162,6 @@ if yuklenen_dosya:
 
                         if not son_mu:
                             if not yeni_satir_ekle():
-                                st.warning("Yeni satır eklenemedi, işlem durdu.")
                                 return False
                         return True
 
@@ -149,51 +171,50 @@ if yuklenen_dosya:
                         ok = satir_doldur(miktar, vade, odeme, son_mu)
                         page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                         time.sleep(0.3)
-                        if not ok:
-                            break
+                        if not ok: break
 
                     log.info("🔄 Hesaplama yapılıyor...")
                     page.wait_for_selector("#submit:enabled", timeout=15000)
                     page.click("#submit")
                     time.sleep(4)
 
+                    # PDF İndir
                     log.info(f"📥 PDF indiriliyor ({etiket})...")
                     page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
-                    pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
+                    pdf_yolu = os.path.join(tmp_dir, f"rapor_{etiket}.pdf")
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
                     dl_info.value.save_as(pdf_yolu)
 
+                    # Excel İndir
                     log.info(f"📥 Excel indiriliyor ({etiket})...")
                     time.sleep(2)
-                    excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
+                    excel_yolu = os.path.join(tmp_dir, f"rapor_{etiket}.xlsx")
                     with page.expect_download() as xl_info:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
 
                     browser.close()
 
-                # GİB Excel'inden G sütununu oku (3. satırdan başlıyor)
+                # GİB Excel'inden verileri orijinal dosyaya aktar
                 wb_gib = load_workbook(excel_yolu, data_only=True)
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
                     sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
 
-                with open(pdf_yolu, "rb") as f:
-                    sonuclar[f"xvb_{etiket}.pdf"] = f.read()
-                with open(excel_yolu, "rb") as f:
-                    sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
+                # Hafızaya al
+                with open(pdf_yolu, "rb") as f: sonuclar[f"rapor_{etiket}.pdf"] = f.read()
+                with open(excel_yolu, "rb") as f: sonuclar[f"rapor_{etiket}.xlsx"] = f.read()
 
                 progress.progress((grup_no + 1) / grup_sayisi)
 
-            # Orijinal Excel'i D sütunuyla birlikte kaydet
+            # Sonuç Excel'i
             sonuc_buffer = io.BytesIO()
             wb_orijinal.save(sonuc_buffer)
-            sonuclar["sonuc_dosyasi.xlsx"] = sonuc_buffer.getvalue()
+            sonuclar["toplu_sonuc_listesi.xlsx"] = sonuc_buffer.getvalue()
 
-            # Tüm dosyaları tek ZIP'e koy
+            # ZIP oluştur
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for dosya_adi, icerik in sonuclar.items():
@@ -201,16 +222,16 @@ if yuklenen_dosya:
             st.session_state.zip_bytes = zip_buffer.getvalue()
 
             log.empty()
-            st.success("✅ Tamamlandı!")
+            st.success("✅ Tüm işlemler başarıyla tamamlandı!")
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
 
-# Tek indirme butonu
+# İndirme Butonu
 if st.session_state.zip_bytes:
     st.download_button(
-        label="📦 İndir",
+        label="📦 Tüm Raporları ZIP Olarak İndir",
         data=st.session_state.zip_bytes,
-        file_name="xvb_raporlar.zip",
+        file_name="gecikme_zammi_sonuclar.zip",
         mime="application/zip"
     )
