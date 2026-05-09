@@ -176,10 +176,10 @@ if yuklenen_dosya:
                     log.info("🔄 Hesaplama yapılıyor...")
                     page.wait_for_selector("#submit:enabled", timeout=15000)
                     page.click("#submit")
-                    time.sleep(4)
+                    time.sleep(8)
 
                     log.info(f"📥 PDF indiriliyor ({etiket})...")
-                    page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
+                    page.wait_for_selector("#exportPdfButton:enabled", timeout=30000)
                     pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
