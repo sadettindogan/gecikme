@@ -77,12 +77,6 @@ st.write(
     "olan Excel dosyanızı yükleyin. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin."
 )
 
-st.info(
-    "**A Sütunu Kuralları:**\n"
-    "- Ondalık ayracı olarak yalnızca **virgül (,)** kullanılabilir. Nokta (.) **yasaktır**.\n"
-    "- Ondalık kısım en fazla **2 hane** olabilir. (Örn: `1234,56` ✅ — `1234.56` ❌ — `1234,567` ❌)"
-)
-
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
