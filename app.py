@@ -11,13 +11,27 @@ import io
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
+st.markdown("""
+<style>
+[data-testid="stFileUploader"] {
+    padding: 2rem;
+}
+[data-testid="stFileDropzone"] {
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # --- TARİH FORMATI ---
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
+st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
@@ -25,7 +39,7 @@ if "zip_bytes" not in st.session_state:
 yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
-    if st.button("🚀 Başlat"):
+    if st.button("🚀 Hesaplamayı Başlat"):
         st.session_state.zip_bytes = None
         tmp_dir = tempfile.mkdtemp()
 
