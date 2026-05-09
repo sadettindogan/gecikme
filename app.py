@@ -48,13 +48,28 @@ if yuklenen_dosya:
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
 
+            hatali_satirlar = []
             satirlar = []
+            hatali_satirlar = []
             for satir in range(1, sheet_orijinal.max_row + 1):
                 a = sheet_orijinal[f"A{satir}"].value
                 b = sheet_orijinal[f"B{satir}"].value
                 c = sheet_orijinal[f"C{satir}"].value
                 if a and b and c:
+                    try:
+                        a_str = str(float(a))
+                        if "." in a_str:
+                            ondalik = a_str.rstrip("0").split(".")[1]
+                            if len(ondalik) > 2:
+                                hatali_satirlar.append(satir)
+                                continue
+                    except (ValueError, TypeError):
+                        pass
                     satirlar.append((a, b, c))
+
+            if hatali_satirlar:
+                st.error(f"❌ {len(hatali_satirlar)} satırda A sütununda 3 veya daha fazla ondalık basamak var (satır: {hatali_satirlar}). Lütfen düzeltin.")
+                st.stop()
 
             if not satirlar:
                 st.error("Excel dosyasında geçerli satır bulunamadı.")
