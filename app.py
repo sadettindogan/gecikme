@@ -25,7 +25,7 @@ if "zip_bytes" not in st.session_state:
 yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
-    if st.button("🚀 Hesaplamayı Başlat"):
+    if st.button("🚀 Başlat"):
         st.session_state.zip_bytes = None
         tmp_dir = tempfile.mkdtemp()
 
