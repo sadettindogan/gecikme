@@ -7,6 +7,7 @@ import tempfile
 import math
 import zipfile
 import io
+import re
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
@@ -15,9 +16,52 @@ st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
+# --- A SÜTUNU VALİDASYONU ---
+def miktar_dogrula(satirlar):
+    """
+    Kurallar:
+    1. Nokta (.) içermemeli, sadece virgül ondalık ayracı olabilir.
+    2. Ondalık kısmı en fazla 2 hane olabilir.
+    Hatalı satırların listesini döner: [(satir_no, deger, hata_mesaji), ...]
+    """
+    hatalar = []
+    for idx, (a, b, c) in enumerate(satirlar):
+        satir_no = idx + 1
+        deger = str(a).strip()
+
+        # Kural 1: Nokta içermemeli
+        if "." in deger:
+            hatalar.append((satir_no, deger, "Nokta (.) içeriyor — ondalık ayracı olarak virgül (,) kullanılmalıdır."))
+            continue  # Bu satır zaten hatalı, ikinci kuralı kontrol etmeye gerek yok
+
+        # Kural 2: Virgüllü ondalık varsa en fazla 2 hane
+        if "," in deger:
+            parcalar = deger.split(",")
+            if len(parcalar) > 2:
+                hatalar.append((satir_no, deger, "Birden fazla virgül içeriyor."))
+            elif len(parcalar[1]) > 2:
+                hatalar.append((satir_no, deger, f"Ondalık kısmı {len(parcalar[1])} hane — en fazla 2 hane olabilir."))
+
+        # Sayısal karakter kontrolü (virgül ve rakam dışında bir şey var mı?)
+        temiz = deger.replace(",", "")
+        if not temiz.isdigit():
+            hatalar.append((satir_no, deger, "Geçersiz karakter içeriyor (yalnızca rakam ve virgül kabul edilir)."))
+
+    return hatalar
+
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
+st.write(
+    "Satır sayısı sınırlaması yoktur. "
+    "Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** "
+    "olan Excel dosyanızı yükleyin. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin."
+)
+
+st.info(
+    "**A Sütunu Kuralları:**\n"
+    "- Ondalık ayracı olarak yalnızca **virgül (,)** kullanılabilir. Nokta (.) **yasaktır**.\n"
+    "- Ondalık kısım en fazla **2 hane** olabilir. (Örn: `1234,56` ✅ — `1234.56` ❌ — `1234,567` ❌)"
+)
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
@@ -30,7 +74,7 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
-            # Orijinal Excel'i oku ve workbook'u hafızada tut
+            # Excel'i oku
             yuklenen_dosya.seek(0)
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
@@ -46,6 +90,28 @@ if yuklenen_dosya:
             if not satirlar:
                 st.error("Excel dosyasında geçerli satır bulunamadı.")
                 st.stop()
+
+            # ── VALİDASYON ──────────────────────────────────────────────
+            hatalar = miktar_dogrula(satirlar)
+            if hatalar:
+                st.error(
+                    f"❌ **{len(hatalar)} satırda hata bulundu.** "
+                    "Lütfen aşağıdaki satırları düzeltin ve dosyayı tekrar yükleyin. "
+                    "İşlem başlatılmadı."
+                )
+                # Hataları tablo olarak göster
+                hata_satirlari = []
+                for satir_no, deger, mesaj in hatalar:
+                    hata_satirlari.append({
+                        "Satır No": satir_no,
+                        "Girilen Değer": deger,
+                        "Hata": mesaj,
+                    })
+                st.table(hata_satirlari)
+                st.stop()
+            # ── VALİDASYON SONU ─────────────────────────────────────────
+
+            st.success(f"✅ Validasyon başarılı — {len(satirlar)} satır geçerli. İşlem başlıyor...")
 
             MAX_GRUP = 25
             grup_sayisi = math.ceil(len(satirlar) / MAX_GRUP)
@@ -178,7 +244,6 @@ if yuklenen_dosya:
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
                     sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
 
                 with open(pdf_yolu, "rb") as f:
