@@ -7,6 +7,7 @@ import tempfile
 import math
 import zipfile
 import io
+from decimal import Decimal, ROUND_DOWN
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
@@ -14,6 +15,19 @@ st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 # --- TARİH FORMATI ---
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
+
+# --- ONDALIK KONTROL ---
+def ondalik_kontrol(deger):
+    """Değerin en fazla 2 ondalık basamaklı olup olmadığını kontrol eder."""
+    try:
+        d = Decimal(str(round(float(deger), 10)))
+        # Normalize edip ondalık kısmını al
+        isaretli = d.normalize()
+        kok = d.as_tuple()
+        ondalik_basamak = max(0, -kok.exponent)
+        return ondalik_basamak <= 2
+    except Exception:
+        return True  # Sayı değilse geçir, başka kontrol yakalar
 
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
@@ -30,18 +44,25 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
-            # Orijinal Excel'i oku ve workbook'u hafızada tut
             yuklenen_dosya.seek(0)
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
 
             satirlar = []
+            hatali_satirlar = []
             for satir in range(1, sheet_orijinal.max_row + 1):
                 a = sheet_orijinal[f"A{satir}"].value
                 b = sheet_orijinal[f"B{satir}"].value
                 c = sheet_orijinal[f"C{satir}"].value
                 if a and b and c:
-                    satirlar.append((a, b, c))
+                    if not ondalik_kontrol(a):
+                        hatali_satirlar.append(satir)
+                    else:
+                        satirlar.append((a, b, c))
+
+            if hatali_satirlar:
+                st.error(f"❌ A sütununda 3 veya daha fazla ondalık basamak içeren satırlar var: {hatali_satirlar}. Lütfen düzeltin.")
+                st.stop()
 
             if not satirlar:
                 st.error("Excel dosyasında geçerli satır bulunamadı.")
@@ -178,8 +199,13 @@ if yuklenen_dosya:
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
-                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+                    if g_degeri is not None:
+                        try:
+                            g_degeri = round(float(g_degeri), 2)
+                        except (ValueError, TypeError):
+                            pass
+                    cell = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+                    cell.number_format = "#,##0.00"
 
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
