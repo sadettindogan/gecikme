@@ -5,6 +5,8 @@ import os
 import time
 import tempfile
 import math
+import zipfile
+import io
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
@@ -17,10 +19,14 @@ def tarih_str(t):
 st.title("📄 Gecikme Zammı Rapor Portalı")
 st.write("Excel dosyanızı yükleyin (A: Tutar, B: Vade Tarihi, C: Ödeme Tarihi).")
 
+if "zip_bytes" not in st.session_state:
+    st.session_state.zip_bytes = None
+
 yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
 
 if yuklenen_dosya:
     if st.button("🚀 Hesaplamayı Başlat"):
+        st.session_state.zip_bytes = None
         tmp_dir = tempfile.mkdtemp()
 
         try:
@@ -46,7 +52,7 @@ if yuklenen_dosya:
             progress = st.progress(0)
             log = st.empty()
 
-            sonuclar = {}  # etiket -> {pdf, excel}
+            sonuclar = {}
 
             for grup_no in range(grup_sayisi):
                 baslangic = grup_no * MAX_GRUP
@@ -166,33 +172,30 @@ if yuklenen_dosya:
                     browser.close()
 
                 with open(pdf_yolu, "rb") as f:
-                    pdf_bytes = f.read()
+                    sonuclar[f"xvb_{etiket}.pdf"] = f.read()
                 with open(excel_yolu, "rb") as f:
-                    xl_bytes = f.read()
+                    sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
 
-                sonuclar[etiket] = {"pdf": pdf_bytes, "excel": xl_bytes}
                 progress.progress((grup_no + 1) / grup_sayisi)
+
+            # Tüm dosyaları tek ZIP'e koy
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for dosya_adi, icerik in sonuclar.items():
+                    zf.writestr(dosya_adi, icerik)
+            st.session_state.zip_bytes = zip_buffer.getvalue()
 
             log.empty()
             st.success("✅ Tüm gruplar tamamlandı!")
-            st.subheader("📥 Dosyaları İndir")
-
-            for etiket, dosyalar in sonuclar.items():
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label=f"📄 PDF — {etiket}",
-                        data=dosyalar["pdf"],
-                        file_name=f"xvb_{etiket}.pdf",
-                        mime="application/pdf"
-                    )
-                with col2:
-                    st.download_button(
-                        label=f"📊 Excel — {etiket}",
-                        data=dosyalar["excel"],
-                        file_name=f"xvb_{etiket}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
+
+# Tek indirme butonu
+if st.session_state.zip_bytes:
+    st.download_button(
+        label="📦 Tüm Dosyaları İndir (ZIP)",
+        data=st.session_state.zip_bytes,
+        file_name="xvb_raporlar.zip",
+        mime="application/zip"
+    )
