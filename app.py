@@ -17,7 +17,7 @@ def tarih_str(t):
 
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın.")
+st.write("Satır sayısı sınırlaması yoktur. Başlık olmadan A Sütunu: Tutar, B Sütunu: Vade Tarihi, C Sütunu: Ödeme Tarihi olan Excel dosyanızı yükleyin veya aşağıya sürükleyip bırakın. Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
@@ -186,7 +186,7 @@ if yuklenen_dosya:
             st.session_state.zip_bytes = zip_buffer.getvalue()
 
             log.empty()
-            st.success("✅ Tüm gruplar tamamlandı!")
+            st.success("✅ Tamamlandı!")
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
@@ -194,7 +194,7 @@ if yuklenen_dosya:
 # Tek indirme butonu
 if st.session_state.zip_bytes:
     st.download_button(
-        label="📦 Tüm Dosyaları İndir (ZIP)",
+        label="📦 İndir",
         data=st.session_state.zip_bytes,
         file_name="xvb_raporlar.zip",
         mime="application/zip"
