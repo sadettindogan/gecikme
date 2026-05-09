@@ -11,20 +11,6 @@ import io
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
-st.markdown("""
-<style>
-[data-testid="stFileUploader"] {
-    padding: 2rem;
-}
-[data-testid="stFileDropzone"] {
-    min-height: 160px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # --- TARİH FORMATI ---
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
@@ -44,32 +30,18 @@ if yuklenen_dosya:
         tmp_dir = tempfile.mkdtemp()
 
         try:
+            # Orijinal Excel'i oku ve workbook'u hafızada tut
             yuklenen_dosya.seek(0)
             wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
             sheet_orijinal = wb_orijinal.active
 
-            hatali_satirlar = []
             satirlar = []
-            hatali_satirlar = []
             for satir in range(1, sheet_orijinal.max_row + 1):
                 a = sheet_orijinal[f"A{satir}"].value
                 b = sheet_orijinal[f"B{satir}"].value
                 c = sheet_orijinal[f"C{satir}"].value
                 if a and b and c:
-                    try:
-                        a_str = str(float(a))
-                        if "." in a_str:
-                            ondalik = a_str.rstrip("0").split(".")[1]
-                            if len(ondalik) > 2:
-                                hatali_satirlar.append(satir)
-                                continue
-                    except (ValueError, TypeError):
-                        pass
                     satirlar.append((a, b, c))
-
-            if hatali_satirlar:
-                st.error(f"❌ {len(hatali_satirlar)} satırda A sütununda 3 veya daha fazla ondalık basamak var (satır: {hatali_satirlar}). Lütfen düzeltin.")
-                st.stop()
 
             if not satirlar:
                 st.error("Excel dosyasında geçerli satır bulunamadı.")
@@ -206,13 +178,8 @@ if yuklenen_dosya:
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    if g_degeri is not None:
-                        try:
-                            g_degeri = round(float(g_degeri), 2)
-                        except (ValueError, TypeError):
-                            pass
-                    cell = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
-                    cell.number_format = "#,##0.00"
+                    # Orijinal dosyanın D sütununa yaz (baslangic 0 bazlı, satır 1 bazlı)
+                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
 
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
