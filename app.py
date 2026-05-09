@@ -196,7 +196,8 @@ if yuklenen_dosya:
                             g_degeri = round(float(g_degeri), 2)
                         except (ValueError, TypeError):
                             pass
-                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+                    cell = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+                    cell.number_format = "#,##0.00"
 
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
