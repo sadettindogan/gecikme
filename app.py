@@ -71,11 +71,9 @@ def miktar_dogrula(satirlar):
 
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.write(
-    "Satır sayısı sınırlaması yoktur. "
-    "Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** "
-    "olan Excel dosyanızı yükleyin. Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin."
-)
+st.write("Satır sayısı sınırlaması yoktur.")
+st.write("Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** olan Excel dosyanızı yükleyin.")
+st.write("Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
@@ -258,7 +256,17 @@ if yuklenen_dosya:
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_degeri)
+                    # Her zaman iki ondalık basamaklı virgüllü string olarak yaz
+                    if g_degeri is not None:
+                        try:
+                            # Sayıyı float'a çevir, iki ondalıklı formatla, noktayı virgüle çevir
+                            g_str = f"{float(str(g_degeri).replace(',', '.')):.2f}".replace(".", ",")
+                        except (ValueError, TypeError):
+                            g_str = str(g_degeri)
+                    else:
+                        g_str = None
+                    hucre = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_str)
+                    hucre.number_format = "@"  # Metin olarak sakla, Excel ondalık dönüştürmesin
 
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
