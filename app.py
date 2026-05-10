@@ -183,14 +183,12 @@ if st.session_state.onizleme_aktif:
                 st.table([{"Satır": s, "Değer": d, "Hata": h} for s, d, h in hatalar_val])
                 st.stop()
 
-            st.success(f"✅ {len(satirlar)} satır geçerli. İşlem başlıyor...")
-
             MAX_GRUP    = 25
             grup_sayisi = math.ceil(len(satirlar) / MAX_GRUP)
-            st.write(f"📊 {len(satirlar)} satır — {grup_sayisi} grup")
 
-            progress = st.progress(0)
-            log      = st.empty()
+            # Başlat butonunun yanında yüzde göstergesi
+            durum_alani = st.empty()
+            durum_alani.markdown("🟡 **%0 — Başlatılıyor...**")
             sonuclar = {}
 
             try:
@@ -199,8 +197,8 @@ if st.session_state.onizleme_aktif:
                     bitis     = min(baslangic + MAX_GRUP, len(satirlar))
                     grup      = satirlar[baslangic:bitis]
                     etiket    = f"{baslangic + 1}-{bitis}"
-
-                    log.info(f"🚀 Grup {grup_no + 1}/{grup_sayisi} — Satır {etiket}")
+                    yuzde     = int((grup_no / grup_sayisi) * 100)
+                    durum_alani.markdown(f"🟡 **%{yuzde} — İşleniyor... (Grup {grup_no + 1}/{grup_sayisi})**")
 
                     with sync_playwright() as p:
                         browser = p.chromium.launch(
@@ -278,26 +276,21 @@ if st.session_state.onizleme_aktif:
 
                         for idx, (miktar, vade, odeme) in enumerate(grup):
                             son_mu = (idx == len(grup) - 1)
-                            log.info(f"⏳ Grup {grup_no+1} — {idx+1}/{len(grup)}")
                             ok = satir_doldur(miktar, vade, odeme, son_mu)
                             page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
                             time.sleep(0.3)
                             if not ok:
                                 break
-
-                        log.info("🔄 Hesaplama yapılıyor...")
                         page.wait_for_selector("#submit:enabled", timeout=15000)
                         page.click("#submit")
                         time.sleep(4)
 
-                        log.info(f"📥 PDF indiriliyor ({etiket})...")
                         page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
                         pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
                         with page.expect_download() as dl_info:
                             page.click("#exportPdfButton")
                         dl_info.value.save_as(pdf_yolu)
 
-                        log.info(f"📥 Excel indiriliyor ({etiket})...")
                         time.sleep(2)
                         excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
                         with page.expect_download() as xl_info:
@@ -334,7 +327,9 @@ if st.session_state.onizleme_aktif:
                     with open(excel_yolu, "rb") as f:
                         sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
 
-                    progress.progress((grup_no + 1) / grup_sayisi)
+                    yuzde_bitti = int(((grup_no + 1) / grup_sayisi) * 100)
+                    durum_alani.markdown(f"🟡 **%{yuzde_bitti} — İşleniyor... (Grup {grup_no + 1}/{grup_sayisi})**")
+
 
                 sonuc_buffer = io.BytesIO()
                 wb_orijinal.save(sonuc_buffer)
@@ -346,8 +341,7 @@ if st.session_state.onizleme_aktif:
                         zf.writestr(dosya_adi, icerik)
                 st.session_state.zip_bytes = zip_buffer.getvalue()
 
-                log.empty()
-                st.success("✅ Tamamlandı!")
+                durum_alani.markdown("🟢 **%100 — Tamamlandı!**")
 
             except Exception as e:
                 st.error(f"❌ Bir hata oluştu: {str(e)}")
