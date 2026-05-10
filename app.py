@@ -188,7 +188,7 @@ if st.session_state.onizleme_aktif:
 
             # Başlat butonunun yanında yüzde göstergesi
             durum_alani = st.empty()
-            durum_alani.markdown("🟡 **%0 — Başlatılıyor...**")
+            durum_alani.markdown("🟡 **%0 — İşleniyor...**")
             sonuclar = {}
 
             try:
@@ -198,7 +198,7 @@ if st.session_state.onizleme_aktif:
                     grup      = satirlar[baslangic:bitis]
                     etiket    = f"{baslangic + 1}-{bitis}"
                     yuzde     = int((grup_no / grup_sayisi) * 100)
-                    durum_alani.markdown(f"🟡 **%{yuzde} — İşleniyor... (Grup {grup_no + 1}/{grup_sayisi})**")
+                    durum_alani.markdown(f"🟡 **%{yuzde} — İşleniyor...**")
 
                     with sync_playwright() as p:
                         browser = p.chromium.launch(
@@ -328,7 +328,7 @@ if st.session_state.onizleme_aktif:
                         sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
 
                     yuzde_bitti = int(((grup_no + 1) / grup_sayisi) * 100)
-                    durum_alani.markdown(f"🟡 **%{yuzde_bitti} — İşleniyor... (Grup {grup_no + 1}/{grup_sayisi})**")
+                    durum_alani.markdown(f"🟡 **%{yuzde_bitti} — İşleniyor...**")
 
 
                 sonuc_buffer = io.BytesIO()
