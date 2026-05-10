@@ -52,11 +52,28 @@ def miktar_dogrula(satirlar):
     return hatalar
 
 # --- KOPYALA YAPIŞTIR METNİNİ PARSE ET ---
+# Tarih pattern: 1.01.2024 veya 01.01.2024 veya 1/01/2024 vb.
+TARIH_PATTERN = re.compile(r'\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b')
+
+def tarih_normalize(s):
+    """
+    '1.01.2024' → '01.01.2024' (GIB her zaman 2 haneli gün/ay bekler)
+    Hem nokta hem slash ayracını kabul eder.
+    """
+    m = TARIH_PATTERN.match(s.strip())
+    if m:
+        gun, ay, yil = m.group(1), m.group(2), m.group(3)
+        return f"{gun.zfill(2)}.{ay.zfill(2)}.{yil}"
+    return s.strip()
+
 def parse_yapistirilmis_metin(metin):
     """
-    Excel'den kopyalanmış sekmeyle ayrılmış metni satır listesine çevirir.
-    Her satır: (tutar, vade_tarihi, odeme_tarihi)
-    Tarihler string olarak döner; mevcut tarih_str() fonksiyonu handle eder.
+    Excel'den kopyalanmış metni satır listesine çevirir.
+    Strateji:
+      1. Önce sekme (\\t) ile ayır — Excel'in standart formatı.
+      2. 3 parça çıkmazsa satırdan tarihleri regex ile ayıkla,
+         geriye kalan kısmı tutar olarak al.
+    Her satır: (tutar_str, vade_str, odeme_str)
     """
     satirlar = []
     hatali_satirlar = []
@@ -67,22 +84,39 @@ def parse_yapistirilmis_metin(metin):
         if not line:
             continue
 
-        # Sekme ile ayır (Excel kopyala yapıştır formatı)
+        # --- Yöntem 1: Sekme ile ayır ---
         hucreler = line.split("\t")
+        if len(hucreler) >= 3:
+            tutar = hucreler[0].strip()
+            vade  = tarih_normalize(hucreler[1].strip())
+            odeme = tarih_normalize(hucreler[2].strip())
+            if tutar and vade and odeme:
+                satirlar.append((tutar, vade, odeme))
+                continue
 
-        if len(hucreler) < 3:
-            hatali_satirlar.append((i + 1, line, "3 sütun bulunamadı (Tutar | Vade Tarihi | Ödeme Tarihi)"))
-            continue
+        # --- Yöntem 2: Satırdan tarihleri regex ile çıkar ---
+        tarihler = TARIH_PATTERN.findall(line)
+        if len(tarihler) >= 2:
+            # İlk tarihin başlangıç pozisyonunu bul, öncesi tutar
+            ilk_eslesme = TARIH_PATTERN.search(line)
+            tutar = line[:ilk_eslesme.start()].strip()
+            # Sekme/boşluk varsa temizle
+            tutar = tutar.rstrip("\t ,")
 
-        tutar  = hucreler[0].strip()
-        vade   = hucreler[1].strip()
-        odeme  = hucreler[2].strip()
+            gun1, ay1, yil1 = tarihler[0]
+            gun2, ay2, yil2 = tarihler[1]
+            vade  = f"{gun1.zfill(2)}.{ay1.zfill(2)}.{yil1}"
+            odeme = f"{gun2.zfill(2)}.{ay2.zfill(2)}.{yil2}"
 
-        if not tutar or not vade or not odeme:
-            hatali_satirlar.append((i + 1, line, "Boş hücre var"))
-            continue
+            if tutar and vade and odeme:
+                satirlar.append((tutar, vade, odeme))
+                continue
+            else:
+                hatali_satirlar.append((i + 1, line, "Tutar ayrıştırılamadı — lütfen sekmeyle ayrılmış şekilde yapıştırın."))
+                continue
 
-        satirlar.append((tutar, vade, odeme))
+        # --- Hiçbiri çalışmadı ---
+        hatali_satirlar.append((i + 1, line, "3 sütun bulunamadı (Tutar | Vade Tarihi | Ödeme Tarihi). Sekme ayracı eksik olabilir."))
 
     return satirlar, hatali_satirlar
 
