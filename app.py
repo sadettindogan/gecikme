@@ -115,17 +115,21 @@ for key, default in [
 # BAŞLIK
 # ============================================================
 st.title("📄 Gecikme Zammı Rapor Portalı")
-st.caption("A: Tutar · B: Vade Tarihi · C: Ödeme Tarihi — başlık satırı olmadan")
+st.markdown(
+    "Satır sınırı yoktur. Başlık satırı olmadan **Tutar / Vade Tarihi / Ödeme Tarihi** "
+    "sütunlarını Excel'den kopyalayıp aşağıdaki kutuya yapıştırın **(Ctrl+V)**. "
+    "Sonucu kopyalayıp aynı yere yapıştırabilirsiniz. "
+    "GİB Sitesi çıktılarına **İndir** butonu ile ulaşılabilir."
+)
 
 # ============================================================
 # GİRİŞ
 # ============================================================
-st.markdown("### Veri Girişi")
-
 yapistir_metni = st.text_area(
-    "Excel'den kopyalayıp buraya yapıştırın (Ctrl+V)",
+    "",
     height=160,
     placeholder="1500\t01.01.2023\t15.06.2023\n2300\t15.03.2023\t20.09.2023",
+    label_visibility="collapsed",
     key="ta_yapistir",
 )
 
