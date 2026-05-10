@@ -162,6 +162,8 @@ st.write("Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
+if "sonuc_satirlar" not in st.session_state:
+    st.session_state.sonuc_satirlar = []  # [(tutar, vade, odeme, gecikme_zammi), ...]
 
 # --- GİRİŞ YÖNTEMİ ---
 tab_yukle, tab_yapistir = st.tabs(["📂 Dosya Yükle", "📋 Kopyala & Yapıştır"])
@@ -203,6 +205,7 @@ veri_var = yuklenen_dosya is not None or yapistir_metni.strip()
 if veri_var:
     if st.button("🚀 Başlat"):
         st.session_state.zip_bytes = None
+        st.session_state.sonuc_satirlar = []
         tmp_dir = tempfile.mkdtemp()
 
         try:
@@ -378,6 +381,15 @@ if veri_var:
                     hucre = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_str)
                     hucre.number_format = "@"
 
+                    # Sonuç satırını session_state'e kaydet
+                    a_val, b_val, c_val = grup[i]
+                    st.session_state.sonuc_satirlar.append((
+                        miktar_ham_str(a_val),
+                        tarih_str(b_val),
+                        tarih_str(c_val),
+                        g_str or "",
+                    ))
+
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
                 with open(excel_yolu, "rb") as f:
@@ -403,10 +415,38 @@ if veri_var:
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
 
-# İndirme butonu
+# --- SONUÇ TABLOSU + KOPYALA BUTONU ---
+if st.session_state.sonuc_satirlar:
+    st.markdown("---")
+    st.subheader("📋 Sonuç — Excel'e Yapıştırmaya Hazır")
+
+    satirlar = st.session_state.sonuc_satirlar
+    df_goster = [
+        {"Tutar": a, "Vade Tarihi": b, "Ödeme Tarihi": c, "Gecikme Zammı": d}
+        for a, b, c, d in satirlar
+    ]
+    st.dataframe(df_goster, use_container_width=True)
+
+    # Sekmeyle ayrılmış metin oluştur (Excel'e yapıştırılabilir)
+    tsv_satirlar = ["\t".join([a, b, c, d]) for a, b, c, d in satirlar]
+    tsv_metin = "\n".join(tsv_satirlar)
+
+    st.markdown(
+        "Aşağıdaki metni kopyalayıp doğrudan Excel'e yapıştırabilirsiniz "
+        "(A, B, C, D sütunları olarak yapışır):"
+    )
+    st.code(tsv_metin, language=None)
+
+    st.info(
+        "💡 **Nasıl yapıştırılır:** Yukarıdaki metni seçip kopyalayın "
+        "(veya sağ üstteki kopyala ikonuna tıklayın), "
+        "Excel'de hedef hücreye tıklayın ve Ctrl+V yapın."
+    )
+
+# --- İNDİRME BUTONU ---
 if st.session_state.zip_bytes:
     st.download_button(
-        label="📦 İndir",
+        label="📦 İndir (ZIP)",
         data=st.session_state.zip_bytes,
         file_name="xvb_raporlar.zip",
         mime="application/zip"
