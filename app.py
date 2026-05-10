@@ -1,6 +1,6 @@
 import streamlit as st
 from playwright.sync_api import sync_playwright
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 import os
 import time
 import tempfile
@@ -8,6 +8,7 @@ import math
 import zipfile
 import io
 import re
+from datetime import datetime
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
@@ -18,42 +19,24 @@ def tarih_str(t):
 
 # --- A SÜTUNU: HÜCRE DEĞERİNİ GÜVENLİ STR'YE ÇEVİR ---
 def miktar_ham_str(deger):
-    """
-    openpyxl sayısal hücreleri float olarak okur (örn. 100,35 → 100.35).
-    Eğer değer float/int ise virgüllü string'e dönüştürürüz.
-    Eğer değer zaten string ise olduğu gibi kullanırız (kullanıcının yazdığı ayraç korunur).
-    """
     if isinstance(deger, float):
-        # Python float → virgüllü string (100.35 → "100,35")
         return str(deger).replace(".", ",")
     if isinstance(deger, int):
         return str(deger)
-    # String ise kullanıcının girdiği haliyle bırak
     return str(deger).strip()
 
 # --- A SÜTUNU VALİDASYONU ---
 def miktar_dogrula(satirlar):
-    """
-    Kurallar:
-    1. Nokta (.) içermemeli, sadece virgül ondalık ayracı olabilir.
-    2. Ondalık kısmı en fazla 2 hane olabilir.
-    Hatalı satırların listesini döner: [(satir_no, gosterilen_deger, hata_mesaji), ...]
-    Not: openpyxl float olarak okursa önce virgüle çevrilir; kural ihlali yoksa geçer.
-    """
     hatalar = []
     for idx, (a, b, c) in enumerate(satirlar):
         satir_no = idx + 1
+        ham   = str(a).strip()
+        deger = miktar_ham_str(a)
 
-        # Ham Excel değerini güvenli string'e çevir
-        ham   = str(a).strip()   # openpyxl'in verdiği ham değer (hata mesajı için)
-        deger = miktar_ham_str(a) # validasyon ve işlem için kullanılacak değer
-
-        # Kural 1: Nokta içermemeli (float→virgül dönüşümünden sonra nokta kalmış olmamalı)
         if "." in deger:
             hatalar.append((satir_no, ham, "Nokta (.) içeriyor — ondalık ayracı olarak virgül (,) kullanılmalıdır."))
             continue
 
-        # Kural 2: Virgüllü ondalık varsa en fazla 2 hane
         if "," in deger:
             parcalar = deger.split(",")
             if len(parcalar) > 2:
@@ -62,66 +45,162 @@ def miktar_dogrula(satirlar):
                 hatalar.append((satir_no, ham, f"Ondalık kısmı {len(parcalar[1])} hane — en fazla 2 hane olabilir."))
                 continue
 
-        # Kural 3: Geçersiz karakter (virgül ve rakam dışında)
         temiz = deger.replace(",", "")
         if not temiz.isdigit():
             hatalar.append((satir_no, ham, "Geçersiz karakter içeriyor (yalnızca rakam ve virgül kabul edilir)."))
 
     return hatalar
 
-# --- ANA UYGULAMA ---
+# --- KOPYALA YAPIŞTIR METNİNİ PARSE ET ---
+def parse_yapistirilmis_metin(metin):
+    """
+    Excel'den kopyalanmış sekmeyle ayrılmış metni satır listesine çevirir.
+    Her satır: (tutar, vade_tarihi, odeme_tarihi)
+    Tarihler string olarak döner; mevcut tarih_str() fonksiyonu handle eder.
+    """
+    satirlar = []
+    hatali_satirlar = []
+
+    lines = metin.strip().splitlines()
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Sekme ile ayır (Excel kopyala yapıştır formatı)
+        hucreler = line.split("\t")
+
+        if len(hucreler) < 3:
+            hatali_satirlar.append((i + 1, line, "3 sütun bulunamadı (Tutar | Vade Tarihi | Ödeme Tarihi)"))
+            continue
+
+        tutar  = hucreler[0].strip()
+        vade   = hucreler[1].strip()
+        odeme  = hucreler[2].strip()
+
+        if not tutar or not vade or not odeme:
+            hatali_satirlar.append((i + 1, line, "Boş hücre var"))
+            continue
+
+        satirlar.append((tutar, vade, odeme))
+
+    return satirlar, hatali_satirlar
+
+# --- VERİ KAYNAĞI SEÇİMİ ---
+def veri_al(yuklenen_dosya, yapistir_metni):
+    """
+    Dosya yüklendi ise dosyadan, yoksa yapıştırılan metinden satırları döner.
+    Dönüş: (satirlar, parse_hatalari)
+    """
+    if yuklenen_dosya is not None:
+        yuklenen_dosya.seek(0)
+        wb = load_workbook(yuklenen_dosya, data_only=True)
+        sheet = wb.active
+        satirlar = []
+        for satir in range(1, sheet.max_row + 1):
+            a = sheet[f"A{satir}"].value
+            b = sheet[f"B{satir}"].value
+            c = sheet[f"C{satir}"].value
+            if a and b and c:
+                satirlar.append((a, b, c))
+        return satirlar, [], wb
+    else:
+        satirlar, hatalar = parse_yapistirilmis_metin(yapistir_metni)
+        # Yapıştırma modunda orijinal wb'yi bellekte oluştur (D sütunu için)
+        wb = Workbook()
+        sheet = wb.active
+        for idx, (a, b, c) in enumerate(satirlar):
+            sheet[f"A{idx+1}"] = a
+            sheet[f"B{idx+1}"] = b
+            sheet[f"C{idx+1}"] = c
+        return satirlar, hatalar, wb
+
+# ============================================================
+# ANA UYGULAMA
+# ============================================================
 st.title("📄 Gecikme Zammı Rapor Portalı")
 st.write("Satır sayısı sınırlaması yoktur.")
-st.write("Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** olan Excel dosyanızı yükleyin veya sürükleyip bırakın.")
+st.write(
+    "**A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** — "
+    "başlık satırı olmadan Excel dosyası yükleyin **veya** aşağıya kopyalayıp yapıştırın."
+)
 st.write("Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
-yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
+# --- GİRİŞ YÖNTEMİ ---
+tab_yukle, tab_yapistir = st.tabs(["📂 Dosya Yükle", "📋 Kopyala & Yapıştır"])
 
-if yuklenen_dosya:
+yuklenen_dosya   = None
+yapistir_metni   = ""
+
+with tab_yukle:
+    yuklenen_dosya = st.file_uploader("Dosya Seçin (.xlsx)", type=["xlsx"])
+
+with tab_yapistir:
+    st.markdown(
+        "Excel'de **A, B, C sütunlarını** seçip `Ctrl+C` ile kopyalayın, "
+        "ardından aşağıya `Ctrl+V` ile yapıştırın."
+    )
+    yapistir_metni = st.text_area(
+        "Verilerinizi buraya yapıştırın",
+        height=200,
+        placeholder="Tutar\tVade Tarihi\tÖdeme Tarihi\n1500\t01.01.2023\t15.06.2023\n...",
+    )
+
+    # Önizleme
+    if yapistir_metni.strip():
+        onizleme, parse_hatalari_on = parse_yapistirilmis_metin(yapistir_metni)
+        if parse_hatalari_on:
+            st.warning(f"⚠️ {len(parse_hatalari_on)} satırda format sorunu var (aşağıda gösterilir).")
+        if onizleme:
+            st.success(f"✅ {len(onizleme)} satır algılandı — önizleme:")
+            st.dataframe(
+                [{"Tutar": a, "Vade Tarihi": b, "Ödeme Tarihi": c} for a, b, c in onizleme[:10]],
+                use_container_width=True,
+            )
+            if len(onizleme) > 10:
+                st.caption(f"... ve {len(onizleme) - 10} satır daha")
+
+# Başlat butonu — her iki modda da ortak
+veri_var = yuklenen_dosya is not None or yapistir_metni.strip()
+
+if veri_var:
     if st.button("🚀 Başlat"):
         st.session_state.zip_bytes = None
         tmp_dir = tempfile.mkdtemp()
 
         try:
-            # Excel'i oku
-            yuklenen_dosya.seek(0)
-            wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
+            satirlar, parse_hatalari, wb_orijinal = veri_al(yuklenen_dosya, yapistir_metni)
             sheet_orijinal = wb_orijinal.active
 
-            satirlar = []
-            for satir in range(1, sheet_orijinal.max_row + 1):
-                a = sheet_orijinal[f"A{satir}"].value
-                b = sheet_orijinal[f"B{satir}"].value
-                c = sheet_orijinal[f"C{satir}"].value
-                if a and b and c:
-                    satirlar.append((a, b, c))
-
-            if not satirlar:
-                st.error("Excel dosyasında geçerli satır bulunamadı.")
+            # Parse hataları (kopyala-yapıştır moduna özgü)
+            if parse_hatalari:
+                st.error(f"❌ {len(parse_hatalari)} satırda format hatası var:")
+                st.table([
+                    {"Satır No": s, "İçerik": i, "Hata": h}
+                    for s, i, h in parse_hatalari
+                ])
                 st.stop()
 
-            # ── VALİDASYON ──────────────────────────────────────────────
+            if not satirlar:
+                st.error("Geçerli satır bulunamadı.")
+                st.stop()
+
+            # --- VALİDASYON ---
             hatalar = miktar_dogrula(satirlar)
             if hatalar:
                 st.error(
                     f"❌ **{len(hatalar)} satırda hata bulundu.** "
-                    "Lütfen aşağıdaki satırları düzeltin ve dosyayı tekrar yükleyin. "
+                    "Lütfen aşağıdaki satırları düzeltin ve tekrar deneyin. "
                     "İşlem başlatılmadı."
                 )
-                # Hataları tablo olarak göster
-                hata_satirlari = []
-                for satir_no, deger, mesaj in hatalar:
-                    hata_satirlari.append({
-                        "Satır No": satir_no,
-                        "Girilen Değer": deger,
-                        "Hata": mesaj,
-                    })
-                st.table(hata_satirlari)
+                st.table([
+                    {"Satır No": s, "Girilen Değer": d, "Hata": h}
+                    for s, d, h in hatalar
+                ])
                 st.stop()
-            # ── VALİDASYON SONU ─────────────────────────────────────────
 
             st.success(f"✅ Validasyon başarılı — {len(satirlar)} satır geçerli. İşlem başlıyor...")
 
@@ -131,7 +210,6 @@ if yuklenen_dosya:
 
             progress = st.progress(0)
             log = st.empty()
-
             sonuclar = {}
 
             for grup_no in range(grup_sayisi):
@@ -251,22 +329,20 @@ if yuklenen_dosya:
 
                     browser.close()
 
-                # GİB Excel'inden G sütununu oku (3. satırdan başlıyor)
+                # GİB Excel'inden G sütununu oku
                 wb_gib = load_workbook(excel_yolu, data_only=True)
                 sheet_gib = wb_gib.active
                 for i in range(len(grup)):
                     g_degeri = sheet_gib[f"G{3 + i}"].value
-                    # Her zaman iki ondalık basamaklı virgüllü string olarak yaz
                     if g_degeri is not None:
                         try:
-                            # Sayıyı float'a çevir, iki ondalıklı formatla, noktayı virgüle çevir
                             g_str = f"{float(str(g_degeri).replace(',', '.')):.2f}".replace(".", ",")
                         except (ValueError, TypeError):
                             g_str = str(g_degeri)
                     else:
                         g_str = None
                     hucre = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_str)
-                    hucre.number_format = "@"  # Metin olarak sakla, Excel ondalık dönüştürmesin
+                    hucre.number_format = "@"
 
                 with open(pdf_yolu, "rb") as f:
                     sonuclar[f"xvb_{etiket}.pdf"] = f.read()
@@ -275,12 +351,12 @@ if yuklenen_dosya:
 
                 progress.progress((grup_no + 1) / grup_sayisi)
 
-            # Orijinal Excel'i D sütunuyla birlikte kaydet
+            # Sonuç Excel'i kaydet
             sonuc_buffer = io.BytesIO()
             wb_orijinal.save(sonuc_buffer)
             sonuclar["sonuc_dosyasi.xlsx"] = sonuc_buffer.getvalue()
 
-            # Tüm dosyaları tek ZIP'e koy
+            # ZIP
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for dosya_adi, icerik in sonuclar.items():
@@ -293,7 +369,7 @@ if yuklenen_dosya:
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
 
-# Tek indirme butonu
+# İndirme butonu
 if st.session_state.zip_bytes:
     st.download_button(
         label="📦 İndir",
