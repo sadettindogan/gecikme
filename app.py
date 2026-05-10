@@ -72,7 +72,7 @@ def miktar_dogrula(satirlar):
 # --- ANA UYGULAMA ---
 st.title("📄 Gecikme Zammı Rapor Portalı")
 st.write("Satır sayısı sınırlaması yoktur.")
-st.write("Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** olan Excel dosyanızı yükleyin.")
+st.write("Başlık olmadan **A Sütunu: Tutar**, **B Sütunu: Vade Tarihi**, **C Sütunu: Ödeme Tarihi** olan Excel dosyanızı yükleyin veya sürükleyip bırakın.")
 st.write("Başlata tıkladıktan sonra Tamamlandı görene kadar bekleyin.")
 
 if "zip_bytes" not in st.session_state:
