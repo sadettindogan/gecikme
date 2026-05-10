@@ -133,31 +133,11 @@ col_enter, col_bos = st.columns([1, 5])
 with col_enter:
     enter_tiklandi = st.button("↵ Enter", use_container_width=True)
 
-with st.expander("📂 Dosya yükle (.xlsx)"):
-    yuklenen_dosya = st.file_uploader("", type=["xlsx"], label_visibility="collapsed")
-
 # --- ÖNİZLEMEYİ TETİKLE ---
 if enter_tiklandi and yapistir_metni.strip():
     onizleme, hatalar = parse_yapistirilmis_metin(yapistir_metni)
     st.session_state.onizleme_satirlar = onizleme
     st.session_state.onizleme_hatalari = hatalar
-    st.session_state.onizleme_aktif    = True
-    st.session_state.sonuc_satirlar    = []
-    st.session_state.zip_bytes         = None
-
-if yuklenen_dosya is not None:
-    yuklenen_dosya.seek(0)
-    wb_tmp    = load_workbook(yuklenen_dosya, data_only=True)
-    sheet_tmp = wb_tmp.active
-    satirlar_tmp = []
-    for satir in range(1, sheet_tmp.max_row + 1):
-        a = sheet_tmp[f"A{satir}"].value
-        b = sheet_tmp[f"B{satir}"].value
-        c = sheet_tmp[f"C{satir}"].value
-        if a and b and c:
-            satirlar_tmp.append((miktar_ham_str(a), tarih_str(b), tarih_str(c)))
-    st.session_state.onizleme_satirlar = satirlar_tmp
-    st.session_state.onizleme_hatalari = []
     st.session_state.onizleme_aktif    = True
     st.session_state.sonuc_satirlar    = []
     st.session_state.zip_bytes         = None
@@ -190,11 +170,7 @@ if st.session_state.onizleme_aktif:
             tmp_dir  = tempfile.mkdtemp()
             satirlar = onizleme
 
-            if yuklenen_dosya is not None:
-                yuklenen_dosya.seek(0)
-                wb_orijinal = load_workbook(yuklenen_dosya, data_only=True)
-            else:
-                wb_orijinal = wb_olustur(satirlar)
+            wb_orijinal = wb_olustur(satirlar)
             sheet_orijinal = wb_orijinal.active
 
             hatalar_val = miktar_dogrula(satirlar)
@@ -373,12 +349,37 @@ if st.session_state.onizleme_aktif:
                 st.error(f"❌ Bir hata oluştu: {str(e)}")
 
 # ============================================================
-# SONUÇ — sadece kopyalanabilir kod bloğu
+# SONUÇ
 # ============================================================
 if st.session_state.sonuc_satirlar:
     st.markdown("---")
     tsv = "\n".join("\t".join(row) for row in st.session_state.sonuc_satirlar)
     st.code(tsv, language=None)
+
+    # Kopyala butonu — Streamlit yeniden render gerektirmez, direkt JS
+    tsv_js = tsv.replace("\\", "\\\\").replace("`", "\\`")
+    st.components.v1.html(
+        f"""
+        <button onclick="
+            navigator.clipboard.writeText(`{tsv_js}`).then(function() {{
+                this.innerText = '\u2705 Kopyaland\u0131!';
+                setTimeout(() => this.innerText = '\U0001f4cb Sonucu Kopyala', 2000);
+            }}.bind(this)).catch(function() {{
+                this.innerText = '\u274c Kopyalanamad\u0131';
+                setTimeout(() => this.innerText = '\U0001f4cb Sonucu Kopyala', 2000);
+            }}.bind(this));
+        " style="
+            padding:8px 18px;
+            font-size:14px;
+            cursor:pointer;
+            border:1px solid #ccc;
+            border-radius:6px;
+            background:#f0f2f6;
+            color:#333;
+        ">\U0001f4cb Sonucu Kopyala</button>
+        """,
+        height=48,
+    )
 
 if st.session_state.zip_bytes:
     st.download_button(
