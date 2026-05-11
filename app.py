@@ -243,23 +243,40 @@ if st.session_state.satirlar_cache:
                         page.keyboard.press("Escape")
 
                 def satir_doldur(miktar, vade, odeme, son_mu):
+                    import time as _t
+                    t0 = _t.time()
                     form_index = satir_sayisi()
+
+                    t1 = _t.time()
                     dropdown_sec(form_index)
+                    t2 = _t.time()
+
                     inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=10000)
                     inp_miktar.click()
                     inp_miktar.fill(miktar_ham_str(miktar))
+                    t3 = _t.time()
+
                     inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=10000)
                     inp_vade.click()
                     inp_vade.fill(tarih_str(vade))
                     page.keyboard.press("Escape")
+                    t4 = _t.time()
+
                     inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=10000)
                     inp_odeme.click()
                     inp_odeme.fill(tarih_str(odeme))
                     page.keyboard.press("Escape")
+                    t5 = _t.time()
+
+                    ekle_sure = 0
                     if not son_mu:
+                        te = _t.time()
                         if not yeni_satir_ekle():
                             st.warning("Yeni satır eklenemedi, işlem durdu.")
                             return False
+                        ekle_sure = _t.time() - te
+
+                    print(f"SATIR {form_index}: dropdown={t2-t1:.2f}s miktar={t3-t2:.2f}s vade={t4-t3:.2f}s odeme={t5-t4:.2f}s yeni_satir={ekle_sure:.2f}s TOPLAM={_t.time()-t0:.2f}s", flush=True)
                     return True
 
                 for grup_no in range(grup_sayisi):
