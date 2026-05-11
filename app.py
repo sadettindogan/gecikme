@@ -206,22 +206,29 @@ if st.session_state.satirlar_cache:
 
                     page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
                     page.wait_for_load_state("networkidle")
-                    time.sleep(3)
+                    time.sleep(1)
 
                     def satir_sayisi():
                         return len(page.query_selector_all("input[id^='odenecekMiktar']"))
 
                     def yeni_satir_ekle():
                         once = satir_sayisi()
-                        btn  = page.query_selector("button[aria-label='add']")
-                        btn.scroll_into_view_if_needed()
-                        btn.click()
-                        deadline = time.time() + 15
-                        while time.time() < deadline:
-                            if satir_sayisi() > once:
-                                time.sleep(0.5)
-                                return True
-                            time.sleep(0.2)
+                        for deneme in range(5):
+                            btn = page.query_selector("button[aria-label='add']")
+                            if not btn:
+                                time.sleep(1)
+                                continue
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                            time.sleep(0.3)
+                            btn.scroll_into_view_if_needed()
+                            time.sleep(0.3)
+                            btn.click()
+                            deadline = time.time() + 8
+                            while time.time() < deadline:
+                                if satir_sayisi() > once:
+                                    time.sleep(0.5)
+                                    return True
+                                time.sleep(0.3)
                         return False
 
                     def dropdown_sec(form_index):
@@ -257,12 +264,11 @@ if st.session_state.satirlar_cache:
                         inp_vade.click()
                         inp_vade.fill(vade_s)
                         page.keyboard.press("Escape")
-                        time.sleep(0.2)
                         inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=5000)
                         inp_odeme.click()
                         inp_odeme.fill(odeme_s)
                         page.keyboard.press("Escape")
-                        time.sleep(0.2)
+                        time.sleep(0.1)
                         if not son_mu:
                             if not yeni_satir_ekle():
                                 st.warning("Yeni satır eklenemedi, işlem durdu.")
@@ -273,13 +279,12 @@ if st.session_state.satirlar_cache:
                         son_mu = (idx == len(grup) - 1)
                         ok = satir_doldur(miktar, vade, odeme, son_mu)
                         page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                        time.sleep(0.3)
+                        time.sleep(0.1)
                         if not ok:
                             break
 
                     page.wait_for_selector("#submit:enabled", timeout=20000)
                     page.click("#submit")
-                    time.sleep(8)
 
                     page.wait_for_selector("#exportPdfButton:enabled", timeout=30000)
                     pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
@@ -287,12 +292,10 @@ if st.session_state.satirlar_cache:
                         page.click("#exportPdfButton")
                     dl_info.value.save_as(pdf_yolu)
 
-                    time.sleep(2)
                     excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
                     with page.expect_download() as xl_info:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
-                    time.sleep(2)
 
                     browser.close()
 
