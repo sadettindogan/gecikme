@@ -193,7 +193,22 @@ if st.session_state.satirlar_cache:
         def sure_goster():
             gecen = int(time.time() - baslangic_zamani)
             dk, sn = divmod(gecen, 60)
-            sure_alani.caption(f"⏱ Geçen süre: {dk:02d}:{sn:02d}")
+            sure_alani.markdown(
+                f"""<div style="
+                    font-family: 'Courier New', monospace;
+                    font-size: 36px;
+                    font-weight: bold;
+                    letter-spacing: 6px;
+                    color: #00ff41;
+                    background: #1a1a1a;
+                    display: inline-block;
+                    padding: 8px 20px;
+                    border-radius: 8px;
+                    border: 2px solid #00ff41;
+                    box-shadow: 0 0 10px #00ff4166;
+                ">⏱ {dk:02d}:{sn:02d}</div>""",
+                unsafe_allow_html=True,
+            )
 
         try:
             with sync_playwright() as p:
@@ -366,7 +381,22 @@ if st.session_state.satirlar_cache:
             gecen_toplam = int(time.time() - baslangic_zamani)
             dk, sn = divmod(gecen_toplam, 60)
             durum_alani.markdown("🟢 **%100 — Tamamlandı!**")
-            sure_alani.caption(f"⏱ Toplam süre: {dk:02d}:{sn:02d}")
+            sure_alani.markdown(
+                f"""<div style="
+                    font-family: 'Courier New', monospace;
+                    font-size: 36px;
+                    font-weight: bold;
+                    letter-spacing: 6px;
+                    color: #00ff41;
+                    background: #1a1a1a;
+                    display: inline-block;
+                    padding: 8px 20px;
+                    border-radius: 8px;
+                    border: 2px solid #00ff41;
+                    box-shadow: 0 0 10px #00ff4166;
+                ">✅ {dk:02d}:{sn:02d}</div>""",
+                unsafe_allow_html=True,
+            )
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
@@ -379,8 +409,10 @@ if st.session_state.sonuc_satirlar:
     tsv = "\n".join("\t".join(row) for row in st.session_state.sonuc_satirlar)
     st.code(tsv, language=None)
 
-    # Sadece 4. sütun (Gecikme Zammı)
-    sadece_zammi = "\n".join(row[3] for row in st.session_state.sonuc_satirlar)
+    # Sadece 4. sütun (Gecikme Zammı) — noktalı sayı olarak kopyala, Excel 2 ondalık gösterir
+    sadece_zammi = "\n".join(
+        row[3].replace(",", ".") for row in st.session_state.sonuc_satirlar
+    )
     tsv_js = sadece_zammi.replace("\\", "\\\\").replace("`", "\\`")
     st.components.v1.html(
         f"""
