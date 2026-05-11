@@ -216,7 +216,7 @@ if st.session_state.satirlar_cache:
                         btn  = page.query_selector("button[aria-label='add']")
                         btn.scroll_into_view_if_needed()
                         btn.click()
-                        deadline = time.time() + 10
+                        deadline = time.time() + 15
                         while time.time() < deadline:
                             if satir_sayisi() > once:
                                 time.sleep(0.5)
@@ -277,11 +277,11 @@ if st.session_state.satirlar_cache:
                         if not ok:
                             break
 
-                    page.wait_for_selector("#submit:enabled", timeout=15000)
+                    page.wait_for_selector("#submit:enabled", timeout=20000)
                     page.click("#submit")
-                    time.sleep(4)
+                    time.sleep(8)
 
-                    page.wait_for_selector("#exportPdfButton:enabled", timeout=15000)
+                    page.wait_for_selector("#exportPdfButton:enabled", timeout=30000)
                     pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
@@ -292,6 +292,7 @@ if st.session_state.satirlar_cache:
                     with page.expect_download() as xl_info:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
+                    time.sleep(2)
 
                     browser.close()
 
