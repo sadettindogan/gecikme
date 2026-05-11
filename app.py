@@ -379,7 +379,9 @@ if st.session_state.sonuc_satirlar:
     tsv = "\n".join("\t".join(row) for row in st.session_state.sonuc_satirlar)
     st.code(tsv, language=None)
 
-    tsv_js = tsv.replace("\\", "\\\\").replace("`", "\\`")
+    # Sadece 4. sütun (Gecikme Zammı)
+    sadece_zammi = "\n".join(row[3] for row in st.session_state.sonuc_satirlar)
+    tsv_js = sadece_zammi.replace("\\", "\\\\").replace("`", "\\`")
     st.components.v1.html(
         f"""
         <button onclick="
