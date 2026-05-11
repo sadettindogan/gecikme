@@ -115,10 +115,12 @@ for key, default in [
 # ============================================================
 st.title("📄 Gecikme Zammı Rapor Portalı")
 st.markdown(
-    "Satır sınırı yoktur. Başlık satırı olmadan **Tutar / Vade Tarihi / Ödeme Tarihi** "
+    "Satır sınırı yoktur. Başlık satırı olmadan **Tutar(*) / Vade Tarihi / Ödeme Tarihi** "
     "sütunlarını Excel'den kopyalayıp aşağıdaki kutuya yapıştırın **(Ctrl+V)**. "
     "Sonucu kopyalayıp aynı yere yapıştırabilirsiniz. "
-    "GİB Sitesi çıktılarına **İndir** butonu ile ulaşılabilir."
+    "GİB Sitesi çıktılarına **İndir** butonu ile ulaşılabilir.\n\n"
+    "*(\*) Tutar verisi şu kurala uymazsa hata verecektir: "
+    "Nokta içermemeli, ondalık varsa virgül ile ayrılmalı, virgülden sonra en fazla iki hane olmalı.*"
 )
 
 # ============================================================
