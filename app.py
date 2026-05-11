@@ -136,7 +136,7 @@ yapistir_metni = st.text_area(
 
 col_enter, col_bos = st.columns([1, 5])
 with col_enter:
-    enter_tiklandi = st.button("↵ Enter", use_container_width=True)
+    enter_tiklandi = st.button("↵ Enter (Veriyi Kontrol Ederek Hata Denetiminden Geçirir.)", use_container_width=True)
 
 # ============================================================
 # ENTER — PARSE + VALİDASYON
