@@ -187,106 +187,99 @@ if st.session_state.satirlar_cache:
         sonuclar = {}
 
         try:
-            for grup_no in range(grup_sayisi):
-                baslangic = grup_no * MAX_GRUP
-                bitis     = min(baslangic + MAX_GRUP, len(satirlar))
-                grup      = satirlar[baslangic:bitis]
-                etiket    = f"{baslangic + 1}-{bitis}"
-                yuzde     = int((grup_no / grup_sayisi) * 100)
-                durum_alani.markdown(f"🟡 **%{yuzde} — İşleniyor...**")
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    executable_path="/usr/bin/chromium",
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                )
+                context = browser.new_context(accept_downloads=True)
+                page    = context.new_page()
 
-                with sync_playwright() as p:
-                    browser = p.chromium.launch(
-                        headless=True,
-                        executable_path="/usr/bin/chromium",
-                        args=["--no-sandbox", "--disable-dev-shm-usage"]
-                    )
-                    context = browser.new_context(accept_downloads=True)
-                    page    = context.new_page()
+                page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
+                page.wait_for_load_state("networkidle")
 
-                    page.goto("https://dijital.gib.gov.tr/hesaplamalar/GecikmeZamVeFaizHesaplama")
-                    page.wait_for_load_state("networkidle")
-                    time.sleep(1)
+                def satir_sayisi():
+                    return len(page.query_selector_all("input[id^='odenecekMiktar']"))
 
-                    def satir_sayisi():
-                        return len(page.query_selector_all("input[id^='odenecekMiktar']"))
+                def yeni_satir_ekle():
+                    once = satir_sayisi()
+                    for deneme in range(5):
+                        btn = page.query_selector("button[aria-label='add']")
+                        if not btn:
+                            time.sleep(0.5)
+                            continue
+                        btn.scroll_into_view_if_needed()
+                        btn.click()
+                        deadline = time.time() + 5
+                        while time.time() < deadline:
+                            if satir_sayisi() > once:
+                                return True
+                            time.sleep(0.2)
+                    return False
 
-                    def yeni_satir_ekle():
-                        once = satir_sayisi()
-                        for deneme in range(5):
-                            btn = page.query_selector("button[aria-label='add']")
-                            if not btn:
-                                time.sleep(1)
-                                continue
-                            page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                            time.sleep(0.3)
-                            btn.scroll_into_view_if_needed()
-                            time.sleep(0.3)
-                            btn.click()
-                            deadline = time.time() + 8
-                            while time.time() < deadline:
-                                if satir_sayisi() > once:
-                                    time.sleep(0.5)
-                                    return True
-                                time.sleep(0.3)
-                        return False
+                def formu_sifirla():
+                    """Grubu bitirince TEMİZLE butonuna bas, form sıfırlansın."""
+                    page.click("#reset")
+                    page.wait_for_selector("#odenecekMiktar1", timeout=10000)
 
-                    def dropdown_sec(form_index):
-                        dropdown_id = f"gecikmeTipi{form_index}"
-                        mevcut = page.query_selector(f"input[name='{dropdown_id}']")
-                        if mevcut:
-                            mevcut_deger = mevcut.get_attribute("value") or ""
-                            if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
-                                return
-                        dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
-                        dropdown_div.scroll_into_view_if_needed()
-                        dropdown_div.click()
-                        time.sleep(0.5)
-                        page.wait_for_selector("ul[role='listbox']", timeout=5000)
-                        time.sleep(0.3)
-                        gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
-                                     page.query_selector("li:has-text('Gecikme Zammı')")
-                        if gecikme_li:
-                            gecikme_li.click()
-                            time.sleep(0.3)
-                        else:
-                            page.keyboard.press("Escape")
-
-                    def satir_doldur(miktar, vade, odeme, son_mu):
-                        form_index = satir_sayisi()
-                        vade_s     = tarih_str(vade)
-                        odeme_s    = tarih_str(odeme)
-                        dropdown_sec(form_index)
-                        inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=5000)
-                        inp_miktar.click()
-                        inp_miktar.fill(miktar_ham_str(miktar))
-                        inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=5000)
-                        inp_vade.click()
-                        inp_vade.fill(vade_s)
+                def dropdown_sec(form_index):
+                    dropdown_id = f"gecikmeTipi{form_index}"
+                    mevcut = page.query_selector(f"input[name='{dropdown_id}']")
+                    if mevcut:
+                        mevcut_deger = mevcut.get_attribute("value") or ""
+                        if "Gecikme Zammı" in mevcut_deger or "gecikmeZammi" in mevcut_deger.lower():
+                            return
+                    dropdown_div = page.wait_for_selector(f"#{dropdown_id}", timeout=5000)
+                    dropdown_div.scroll_into_view_if_needed()
+                    dropdown_div.click()
+                    time.sleep(0.3)
+                    page.wait_for_selector("ul[role='listbox']", timeout=5000)
+                    gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
+                                 page.query_selector("li:has-text('Gecikme Zammı')")
+                    if gecikme_li:
+                        gecikme_li.click()
+                    else:
                         page.keyboard.press("Escape")
-                        inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=5000)
-                        inp_odeme.click()
-                        inp_odeme.fill(odeme_s)
-                        page.keyboard.press("Escape")
-                        time.sleep(0.1)
-                        if not son_mu:
-                            if not yeni_satir_ekle():
-                                st.warning("Yeni satır eklenemedi, işlem durdu.")
-                                return False
-                        return True
+
+                def satir_doldur(miktar, vade, odeme, son_mu):
+                    form_index = satir_sayisi()
+                    dropdown_sec(form_index)
+                    inp_miktar = page.wait_for_selector(f"#odenecekMiktar{form_index}", timeout=10000)
+                    inp_miktar.click()
+                    inp_miktar.fill(miktar_ham_str(miktar))
+                    inp_vade = page.wait_for_selector(f"#vadeTarihi{form_index}", timeout=10000)
+                    inp_vade.click()
+                    inp_vade.fill(tarih_str(vade))
+                    page.keyboard.press("Escape")
+                    inp_odeme = page.wait_for_selector(f"#odemeTarihi{form_index}", timeout=10000)
+                    inp_odeme.click()
+                    inp_odeme.fill(tarih_str(odeme))
+                    page.keyboard.press("Escape")
+                    if not son_mu:
+                        if not yeni_satir_ekle():
+                            st.warning("Yeni satır eklenemedi, işlem durdu.")
+                            return False
+                    return True
+
+                for grup_no in range(grup_sayisi):
+                    baslangic = grup_no * MAX_GRUP
+                    bitis     = min(baslangic + MAX_GRUP, len(satirlar))
+                    grup      = satirlar[baslangic:bitis]
+                    etiket    = f"{baslangic + 1}-{bitis}"
+                    yuzde     = int((grup_no / grup_sayisi) * 100)
+                    durum_alani.markdown(f"🟡 **%{yuzde} — İşleniyor...**")
 
                     for idx, (miktar, vade, odeme) in enumerate(grup):
                         son_mu = (idx == len(grup) - 1)
                         ok = satir_doldur(miktar, vade, odeme, son_mu)
-                        page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                        time.sleep(0.1)
                         if not ok:
                             break
 
-                    page.wait_for_selector("#submit:enabled", timeout=20000)
+                    page.wait_for_selector("#submit:enabled", timeout=10000)
                     page.click("#submit")
-
                     page.wait_for_selector("#exportPdfButton:enabled", timeout=30000)
+
                     pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
@@ -297,38 +290,46 @@ if st.session_state.satirlar_cache:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
 
-                    browser.close()
+                    # GİB Excel G sütunu
+                    wb_gib    = load_workbook(excel_yolu, data_only=True)
+                    sheet_gib = wb_gib.active
+                    for i in range(len(grup)):
+                        g_degeri = sheet_gib[f"G{3 + i}"].value
+                        if g_degeri is not None:
+                            try:
+                                g_str = f"{float(str(g_degeri).replace(',', '.')):.2f}".replace(".", ",")
+                            except (ValueError, TypeError):
+                                g_str = str(g_degeri)
+                        else:
+                            g_str = None
+                        hucre = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_str)
+                        hucre.number_format = "@"
+                        a_val, b_val, c_val = grup[i]
+                        st.session_state.sonuc_satirlar.append((
+                            miktar_ham_str(a_val),
+                            tarih_str(b_val),
+                            tarih_str(c_val),
+                            g_str or "",
+                        ))
 
-                # GİB Excel G sütunu
-                wb_gib    = load_workbook(excel_yolu, data_only=True)
-                sheet_gib = wb_gib.active
-                for i in range(len(grup)):
-                    g_degeri = sheet_gib[f"G{3 + i}"].value
-                    if g_degeri is not None:
-                        try:
-                            g_str = f"{float(str(g_degeri).replace(',', '.')):.2f}".replace(".", ",")
-                        except (ValueError, TypeError):
-                            g_str = str(g_degeri)
-                    else:
-                        g_str = None
-                    hucre = sheet_orijinal.cell(row=baslangic + 1 + i, column=4, value=g_str)
-                    hucre.number_format = "@"
+                    with open(pdf_yolu, "rb") as f:
+                        sonuclar[f"xvb_{etiket}.pdf"] = f.read()
+                    with open(excel_yolu, "rb") as f:
+                        sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
+                    try:
+                        os.remove(pdf_yolu)
+                        os.remove(excel_yolu)
+                    except Exception:
+                        pass
 
-                    a_val, b_val, c_val = grup[i]
-                    st.session_state.sonuc_satirlar.append((
-                        miktar_ham_str(a_val),
-                        tarih_str(b_val),
-                        tarih_str(c_val),
-                        g_str or "",
-                    ))
+                    yuzde_bitti = int(((grup_no + 1) / grup_sayisi) * 100)
+                    durum_alani.markdown(f"🟡 **%{yuzde_bitti} — İşleniyor...**")
 
-                with open(pdf_yolu, "rb") as f:
-                    sonuclar[f"xvb_{etiket}.pdf"] = f.read()
-                with open(excel_yolu, "rb") as f:
-                    sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
+                    # Son grup değilse formu sıfırla
+                    if grup_no < grup_sayisi - 1:
+                        formu_sifirla()
 
-                yuzde_bitti = int(((grup_no + 1) / grup_sayisi) * 100)
-                durum_alani.markdown(f"🟡 **%{yuzde_bitti} — İşleniyor...**")
+                browser.close()
 
             sonuc_buffer = io.BytesIO()
             wb_orijinal.save(sonuc_buffer)
