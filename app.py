@@ -194,19 +194,7 @@ if st.session_state.satirlar_cache:
             gecen = int(time.time() - baslangic_zamani)
             dk, sn = divmod(gecen, 60)
             sure_alani.markdown(
-                f"""<div style="
-                    font-family: 'Courier New', monospace;
-                    font-size: 36px;
-                    font-weight: bold;
-                    letter-spacing: 6px;
-                    color: #00ff41;
-                    background: #1a1a1a;
-                    display: inline-block;
-                    padding: 8px 20px;
-                    border-radius: 8px;
-                    border: 2px solid #00ff41;
-                    box-shadow: 0 0 10px #00ff4166;
-                ">⏱ {dk:02d}:{sn:02d}</div>""",
+                f"<span style='font-size:22px; font-weight:600;'>⏱ {dk:02d}:{sn:02d}</span>",
                 unsafe_allow_html=True,
             )
 
@@ -382,19 +370,7 @@ if st.session_state.satirlar_cache:
             dk, sn = divmod(gecen_toplam, 60)
             durum_alani.markdown("🟢 **%100 — Tamamlandı!**")
             sure_alani.markdown(
-                f"""<div style="
-                    font-family: 'Courier New', monospace;
-                    font-size: 36px;
-                    font-weight: bold;
-                    letter-spacing: 6px;
-                    color: #00ff41;
-                    background: #1a1a1a;
-                    display: inline-block;
-                    padding: 8px 20px;
-                    border-radius: 8px;
-                    border: 2px solid #00ff41;
-                    box-shadow: 0 0 10px #00ff4166;
-                ">✅ {dk:02d}:{sn:02d}</div>""",
+                f"<span style='font-size:22px; font-weight:600;'>✅ {dk:02d}:{sn:02d}</span>",
                 unsafe_allow_html=True,
             )
 
