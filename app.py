@@ -1,30 +1,74 @@
 import streamlit as st
 from playwright.sync_api import sync_playwright
 from openpyxl import load_workbook, Workbook
-import os
-import time
-import tempfile
-import math
-import zipfile
-import io
-import re
+import os, time, tempfile, math, zipfile, io, re, sys, subprocess
 
-# --- SAYFA AYARLARI ---
+# ─── SAYFA ───────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Gecikme Zammı Otomasyonu", page_icon="📄")
 
-# --- TARİH FORMATI ---
+# ─── CHROMİUM YOLU OTO-TESPİT ────────────────────────────────────────────────
+def chromium_yolu_bul():
+    """Playwright'in kurduğu Chromium'u veya sistemdeki Chromium'u bul."""
+    # 1) Playwright cache
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "show-browsers"],
+            capture_output=True, text=True
+        )
+    except Exception:
+        pass
+
+    # Playwright'in standart cache dizinleri
+    homes = []
+    if sys.platform == "win32":
+        homes = [
+            os.path.expanduser(r"~\AppData\Local\ms-playwright"),
+            os.path.join(os.environ.get("LOCALAPPDATA",""), "ms-playwright"),
+        ]
+        exe_adi = "chrome.exe"
+    elif sys.platform == "darwin":
+        homes = [os.path.expanduser("~/Library/Caches/ms-playwright")]
+        exe_adi = "Chromium.app/Contents/MacOS/Chromium"
+    else:
+        homes = [os.path.expanduser("~/.cache/ms-playwright")]
+        exe_adi = "chrome"
+
+    for home in homes:
+        if not os.path.isdir(home):
+            continue
+        for root, dirs, files in os.walk(home):
+            for f in files:
+                if f in ("chrome", "chrome.exe", "chromium", "chromium.exe"):
+                    return os.path.join(root, f)
+
+    # 2) Sistem PATH
+    for candidate in ("chromium-browser", "chromium", "google-chrome", "chrome"):
+        path = subprocess.run(
+            ["which", candidate] if sys.platform != "win32" else ["where", candidate],
+            capture_output=True, text=True
+        ).stdout.strip()
+        if path and os.path.isfile(path):
+            return path
+
+    # 3) Bilinen sabit yollar (Linux sunucu)
+    for fixed in ("/usr/bin/chromium", "/usr/bin/chromium-browser",
+                  "/usr/bin/google-chrome", "/snap/bin/chromium"):
+        if os.path.isfile(fixed):
+            return fixed
+
+    return None  # bulunamazsa Playwright varsayılanı dener
+
+CHROMIUM_PATH = chromium_yolu_bul()
+
+# ─── YARDIMCI FONKSİYONLAR ───────────────────────────────────────────────────
 def tarih_str(t):
     return t.strftime("%d.%m.%Y") if hasattr(t, "strftime") else str(t)
 
-# --- TUTAR STR ---
 def miktar_ham_str(deger):
-    if isinstance(deger, float):
-        return str(deger).replace(".", ",")
-    if isinstance(deger, int):
-        return str(deger)
+    if isinstance(deger, float): return str(deger).replace(".", ",")
+    if isinstance(deger, int):   return str(deger)
     return str(deger).strip()
 
-# --- VALİDASYON ---
 def miktar_dogrula(satirlar):
     hatalar = []
     for idx, (a, b, c) in enumerate(satirlar):
@@ -47,7 +91,6 @@ def miktar_dogrula(satirlar):
             hatalar.append((satir_no, ham, "Geçersiz karakter (yalnızca rakam ve virgül kabul edilir)."))
     return hatalar
 
-# --- PARSE ---
 TARIH_PATTERN = re.compile(r'\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b')
 
 def tarih_normalize(s):
@@ -58,8 +101,7 @@ def tarih_normalize(s):
     return s.strip()
 
 def parse_yapistirilmis_metin(metin):
-    satirlar = []
-    hatali_satirlar = []
+    satirlar, hatali_satirlar = [], []
     lines = metin.strip().splitlines()
     for i, line in enumerate(lines):
         line = line.strip()
@@ -85,9 +127,9 @@ def parse_yapistirilmis_metin(metin):
                 satirlar.append((tutar, vade, odeme))
                 continue
             else:
-                hatali_satirlar.append((i + 1, line, "Tutar ayrıştırılamadı."))
+                hatali_satirlar.append((i+1, line, "Tutar ayrıştırılamadı."))
                 continue
-        hatali_satirlar.append((i + 1, line, "3 sütun bulunamadı. Sekme ayracı eksik olabilir."))
+        hatali_satirlar.append((i+1, line, "3 sütun bulunamadı. Sekme ayracı eksik olabilir."))
     return satirlar, hatali_satirlar
 
 def wb_olustur(satirlar):
@@ -99,9 +141,7 @@ def wb_olustur(satirlar):
         sheet[f"C{idx+1}"] = c
     return wb
 
-# ============================================================
-# SESSION STATE
-# ============================================================
+# ─── SESSION STATE ────────────────────────────────────────────────────────────
 for key, default in [
     ("zip_bytes", None),
     ("sonuc_satirlar", []),
@@ -110,9 +150,7 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ============================================================
-# BAŞLIK
-# ============================================================
+# ─── BAŞLIK ───────────────────────────────────────────────────────────────────
 st.title("📄 Gecikme Zammı Rapor Portalı")
 st.markdown(
     "Satır sınırı yoktur. Başlık satırı olmadan **Tutar(*) / Vade Tarihi / Ödeme Tarihi** "
@@ -123,9 +161,7 @@ st.markdown(
     "Nokta içermemeli, ondalık varsa virgül ile ayrılmalı, virgülden sonra en fazla iki hane olmalı.*"
 )
 
-# ============================================================
-# GİRİŞ
-# ============================================================
+# ─── GİRİŞ ───────────────────────────────────────────────────────────────────
 yapistir_metni = st.text_area(
     "",
     height=160,
@@ -136,9 +172,7 @@ yapistir_metni = st.text_area(
 
 enter_tiklandi = st.button("↵ Enter (Veriyi Kontrol Ederek Hata Denetiminden Geçirir.)")
 
-# ============================================================
-# ENTER — PARSE + VALİDASYON
-# ============================================================
+# ─── PARSE + VALİDASYON ──────────────────────────────────────────────────────
 if enter_tiklandi:
     st.session_state.sonuc_satirlar = []
     st.session_state.zip_bytes      = None
@@ -170,9 +204,7 @@ if enter_tiklandi:
         st.session_state.satirlar_cache = satirlar
         st.success(f"✅ {len(satirlar)} satır geçerli.")
 
-# ============================================================
-# BAŞLAT
-# ============================================================
+# ─── BAŞLAT ───────────────────────────────────────────────────────────────────
 if st.session_state.satirlar_cache:
     if st.button("🚀 Başlat", type="primary"):
         satirlar       = st.session_state.satirlar_cache
@@ -183,11 +215,9 @@ if st.session_state.satirlar_cache:
         grup_sayisi    = math.ceil(len(satirlar) / MAX_GRUP)
         sonuclar       = {}
 
-        # --- Durum alanları ---
-        durum_alani  = st.empty()   # yüzde + grup bilgisi
-        satir_alani  = st.empty()   # kaçıncı satır işleniyor
-        sure_alani   = st.empty()   # geçen süre sayacı
-
+        durum_alani = st.empty()
+        satir_alani = st.empty()
+        sure_alani  = st.empty()
         baslangic_zamani = time.time()
 
         def sure_goster():
@@ -200,11 +230,16 @@ if st.session_state.satirlar_cache:
 
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
+                # Chromium başlatma — bulunan yolu kullan, yoksa Playwright varsayılanı
+                launch_kwargs = dict(
                     headless=True,
-                    executable_path="/usr/bin/chromium",
-                    args=["--no-sandbox", "--disable-dev-shm-usage"]
+                    args=["--no-sandbox", "--disable-dev-shm-usage",
+                          "--disable-blink-features=AutomationControlled"]
                 )
+                if CHROMIUM_PATH:
+                    launch_kwargs["executable_path"] = CHROMIUM_PATH
+
+                browser = p.chromium.launch(**launch_kwargs)
                 context = browser.new_context(accept_downloads=True)
                 page    = context.new_page()
 
@@ -216,7 +251,7 @@ if st.session_state.satirlar_cache:
 
                 def yeni_satir_ekle():
                     once = satir_sayisi()
-                    for deneme in range(5):
+                    for _ in range(5):
                         btn = page.query_selector("button[aria-label='add']")
                         if not btn:
                             time.sleep(0.5)
@@ -246,8 +281,10 @@ if st.session_state.satirlar_cache:
                     dropdown_div.click()
                     time.sleep(0.3)
                     page.wait_for_selector("ul[role='listbox']", timeout=5000)
-                    gecikme_li = page.query_selector("li[data-value='Gecikme Zammı']") or \
-                                 page.query_selector("li:has-text('Gecikme Zammı')")
+                    gecikme_li = (
+                        page.query_selector("li[data-value='Gecikme Zammı']") or
+                        page.query_selector("li:has-text('Gecikme Zammı')")
+                    )
                     if gecikme_li:
                         gecikme_li.click()
                     else:
@@ -288,9 +325,7 @@ if st.session_state.satirlar_cache:
                     for idx, (miktar, vade, odeme) in enumerate(grup):
                         son_mu    = (idx == len(grup) - 1)
                         ilk_satir = (idx == 0)
-                        satir_alani.caption(
-                            f"Grup {grup_no + 1} — Satır {idx + 1}/{len(grup)}"
-                        )
+                        satir_alani.caption(f"Grup {grup_no + 1} — Satır {idx + 1}/{len(grup)}")
                         sure_goster()
                         ok = satir_doldur(miktar, vade, odeme, son_mu, ilk_satir)
                         if not ok:
@@ -304,12 +339,13 @@ if st.session_state.satirlar_cache:
                     page.wait_for_selector("#exportPdfButton:enabled", timeout=30000)
                     sure_goster()
 
-                    pdf_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
+                    pdf_yolu   = os.path.join(tmp_dir, f"xvb_{etiket}.pdf")
+                    excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
+
                     with page.expect_download() as dl_info:
                         page.click("#exportPdfButton")
                     dl_info.value.save_as(pdf_yolu)
 
-                    excel_yolu = os.path.join(tmp_dir, f"xvb_{etiket}.xlsx")
                     with page.expect_download() as xl_info:
                         page.get_by_text("Excel'e Aktar").click()
                     xl_info.value.save_as(excel_yolu)
@@ -335,10 +371,8 @@ if st.session_state.satirlar_cache:
                             g_str or "",
                         ))
 
-                    with open(pdf_yolu, "rb") as f:
-                        sonuclar[f"xvb_{etiket}.pdf"] = f.read()
-                    with open(excel_yolu, "rb") as f:
-                        sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
+                    with open(pdf_yolu,   "rb") as f: sonuclar[f"xvb_{etiket}.pdf"]  = f.read()
+                    with open(excel_yolu, "rb") as f: sonuclar[f"xvb_{etiket}.xlsx"] = f.read()
                     try:
                         os.remove(pdf_yolu)
                         os.remove(excel_yolu)
@@ -376,38 +410,37 @@ if st.session_state.satirlar_cache:
 
         except Exception as e:
             st.error(f"❌ Bir hata oluştu: {str(e)}")
+            st.info(
+                "Chromium bulunamadı veya başlatılamadı. "
+                "Terminalde şunu çalıştırın:\n\n"
+                "```\npython -m playwright install chromium\n```"
+            )
 
-# ============================================================
-# SONUÇ
-# ============================================================
+# ─── SONUÇ ────────────────────────────────────────────────────────────────────
 if st.session_state.sonuc_satirlar:
     st.markdown("---")
     tsv = "\n".join("\t".join(row) for row in st.session_state.sonuc_satirlar)
     st.code(tsv, language=None)
 
-    # Sadece 4. sütun (Gecikme Zammı) — noktalı sayı olarak kopyala, Excel 2 ondalık gösterir
+    # Virgüllü ondalık format (TR locale) — Excel toplamaya izin verir, sembol yok
     sadece_zammi = "\n".join(
-        row[3].replace(",", ".") for row in st.session_state.sonuc_satirlar
+        row[3] for row in st.session_state.sonuc_satirlar
     )
     tsv_js = sadece_zammi.replace("\\", "\\\\").replace("`", "\\`")
     st.components.v1.html(
         f"""
         <button onclick="
             navigator.clipboard.writeText(`{tsv_js}`).then(function() {{
-                this.innerText = '\u2705 Kopyaland\u0131!';
+                this.innerText = '\u2705 Kopyalandı!';
                 setTimeout(() => this.innerText = '\U0001f4cb Sonucu Kopyala', 2000);
             }}.bind(this)).catch(function() {{
-                this.innerText = '\u274c Kopyalanamad\u0131';
+                this.innerText = '\u274c Kopyalanamadı';
                 setTimeout(() => this.innerText = '\U0001f4cb Sonucu Kopyala', 2000);
             }}.bind(this));
         " style="
-            padding:8px 18px;
-            font-size:14px;
-            cursor:pointer;
-            border:1px solid #ccc;
-            border-radius:6px;
-            background:#f0f2f6;
-            color:#333;
+            padding:8px 18px; font-size:14px; cursor:pointer;
+            border:1px solid #ccc; border-radius:6px;
+            background:#f0f2f6; color:#333;
         ">\U0001f4cb Sonucu Kopyala</button>
         """,
         height=48,
